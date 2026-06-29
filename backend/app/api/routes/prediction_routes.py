@@ -37,6 +37,8 @@ class ConfirmPredictionPayload(BaseModel):
     longitude: Optional[float] = None          # Added
     geofence_radius: Optional[float] = None    # Added
     suggested_govt_scheme: Optional[str] = None # Added
+    supervisor_id: Optional[str] = None        # Who confirmed this event
+    supervisor_name: Optional[str] = None      # Supervisor's display name
 
 class ConfirmPredictionRequest(BaseModel):
     event_id: str
@@ -469,6 +471,8 @@ class ManualEventRequest(BaseModel):
     longitude: Optional[float] = None
     geofence_radius: Optional[float] = 150.0
     suggested_govt_scheme: Optional[str] = "General"
+    supervisor_id: Optional[str] = None    # Who created this event
+    supervisor_name: Optional[str] = None  # Supervisor's display name
 
 @router.post("/events/manual")
 async def manual_event(req: ManualEventRequest):
@@ -495,8 +499,10 @@ async def manual_event(req: ManualEventRequest):
                 top_n=event.get("estimated_headcount", 10)
             )
         
-        # 4. Save assignments and notify
+        # 4. Save assignments and notify (inject supervisor info)
         for asgn in assignments:
+            asgn["supervisor_id"] = req.supervisor_id or ""
+            asgn["supervisor_name"] = req.supervisor_name or ""
             asgn_id = event_firestore_service.create_assignment(asgn)
             
             skills_label = assignment_service.skills_matched_label(
@@ -551,6 +557,8 @@ class JoinLiveMatchRequest(BaseModel):
     status: str  # 'accepted' or 'declined'
     match_score: Optional[float] = 0.0
     score_breakdown: Optional[dict] = {}
+    supervisor_id: Optional[str] = ""      # Who owns the event
+    supervisor_name: Optional[str] = ""    # Supervisor display name
 
 @router.get("/volunteers/all")
 async def get_all_volunteers_route():
@@ -594,11 +602,13 @@ async def get_live_matches_for_volunteer(volunteer_id: str):
             event_start = event.get("predicted_date_start", "")
             event_end = event.get("predicted_date_end", "")
             event_area = event.get("area", "")
+            # Handle bilingual dict
+            event_area_str = event_area.get("en", "") if isinstance(event_area, dict) else str(event_area)
 
             score, breakdown = assignment_service._score_volunteer(
                 volunteer=volunteer,
                 required_skills=required_skills,
-                event_area=event_area.lower(),
+                event_area=event_area_str.lower(),
                 event_start=event_start,
                 event_end=event_end,
             )
@@ -648,6 +658,8 @@ async def get_live_matches_for_volunteer(volunteer_id: str):
                 "geofence_radius": event.get("geofence_radius", 150.0),
                 "description": event.get("description", ""),
                 "area": event.get("area", "TBD"),
+                "supervisor_id": event.get("supervisor_id", ""),
+                "supervisor_name": event.get("supervisor_name", ""),
             })
 
         matches.sort(key=lambda x: x["match_score"], reverse=True)
@@ -669,21 +681,23 @@ async def join_live_match_route(body: JoinLiveMatchRequest):
         if not volunteer or not event:
             raise HTTPException(status_code=404, detail="Volunteer or Event not found")
 
-        # Create assignment
+        # Create assignment (include supervisor info so volunteer can initiate chat)
         assignment_data = {
             "event_id": body.event_id,
             "volunteer_id": body.volunteer_id,
             "volunteer_name": volunteer.get("name", "Unknown"),
-            "volunteer_skills": volunteer.get("skills", []), # Added for data integrity
-            "volunteer_area": volunteer.get("area", ""),     # Added for data integrity
+            "volunteer_skills": volunteer.get("skills", []),
+            "volunteer_area": volunteer.get("area", ""),
             "event_type": event.get("event_type", "Event"),
             "event_date_start": event.get("predicted_date_start"),
             "event_date_end": event.get("predicted_date_end"),
             "status": body.status,
-            "match_score": body.match_score or 0.0, 
+            "match_score": body.match_score or 0.0,
             "score_breakdown": body.score_breakdown or {},
             "is_live_match": True,
-            "responded_at": firestore.SERVER_TIMESTAMP if body.status != 'pending' else None
+            "responded_at": firestore.SERVER_TIMESTAMP if body.status != 'pending' else None,
+            "supervisor_id": body.supervisor_id or event.get("supervisor_id", ""),
+            "supervisor_name": body.supervisor_name or event.get("supervisor_name", ""),
         }
         
         assignment_id = event_firestore_service.create_assignment(assignment_data)

@@ -125,9 +125,9 @@ async def process_field_item(
             )
             result["url"] = upload_res["secure_url"]
             result["public_id"] = upload_res["public_id"]
-            print(f"[process-item] ✅ Cloudinary done: {result['url'][:70]}...")
+            print(f"[process-item] (OK) Cloudinary done: {result['url'][:70]}...")
         except Exception as ue:
-            print(f"[process-item] ⚠️ Cloudinary failed: {ue}")
+            print(f"[process-item] (WARN) Cloudinary failed: {ue}")
 
         # Simple label shown in live feed — Gemini will enrich this at report time
         labels = {"audio": "🎤 Voice note uploaded", "image": "📸 Photo uploaded", "video": "🎥 Video uploaded", "pdf": "📄 Document uploaded"}
@@ -169,7 +169,7 @@ async def finalize_field_report(
         async def process_evidence(item_data, upload_file=None):
             import requests as req_lib
             import base64
-            import google.generativeai as genai
+            from google import genai
             
             file_type = item_data.get("type", "unknown")
             fname = upload_file.filename if upload_file else (item_data.get("filename") or "field_note")
@@ -204,7 +204,7 @@ async def finalize_field_report(
                     if resp.status_code == 200:
                         file_bytes = resp.content
                 except Exception as de:
-                    print(f"[FINALIZE] ⚠️ Download error for {fname}: {de}")
+                    print(f"[FINALIZE] (WARN) Download error for {fname}: {de}")
 
             if not file_bytes:
                 return result
@@ -219,7 +219,7 @@ async def finalize_field_report(
                     )
                     result["evidence"]["url"] = upload_res["secure_url"]
                 except Exception as ue:
-                    print(f"[FINALIZE] ⚠️ Cloudinary upload failed: {ue}")
+                    print(f"[FINALIZE] (WARN) Cloudinary upload failed: {ue}")
 
             # --- Prepare Media for Gemini ---
             temp_path = ""
@@ -229,20 +229,21 @@ async def finalize_field_report(
                     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
                         tmp.write(file_bytes)
                         temp_path = tmp.name
-                    print(f"[FINALIZE] Uploading audio to Gemini: {fname}")
-                    audio_file = genai.upload_file(path=temp_path)
+                    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+                    audio_file = client.files.upload(file=temp_path)
                     import time
                     while audio_file.state.name == "PROCESSING":
                         time.sleep(1)
-                        audio_file = genai.get_file(audio_file.name)
+                        audio_file = client.files.get(name=audio_file.name)
                     if audio_file.state.name == "ACTIVE":
                         result["media_part"] = audio_file
                 elif file_type == "image":
                     print(f"[FINALIZE] Encoding image for Gemini: {fname}")
                     result["media_part"] = {"mime_type": "image/jpeg", "data": base64.b64encode(file_bytes).decode("utf-8")}
                 elif file_type == "pdf":
-                    print(f"[FINALIZE] Encoding PDF for Gemini: {fname}")
                     result["media_part"] = {"mime_type": "application/pdf", "data": base64.b64encode(file_bytes).decode("utf-8")}
+                # Use centralized generate_final_session_report which now handles client internally
+                pass
             except Exception as e:
                 print(f"[FINALIZE] Gemini preparation failed for {fname}: {e}")
             finally:
@@ -292,11 +293,12 @@ async def finalize_field_report(
             # --- Phase 2: Generate the final report with single batch Gemini call ---
             report = generate_final_session_report(details, items, inputs, media_parts=media_parts, text_notes=text_notes)
         finally:
-            import google.generativeai as genai
+            from google import genai
+            client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
             for p in media_parts:
                 if hasattr(p, 'name'):
                     try:
-                        genai.delete_file(p.name)
+                        client.files.delete(name=p.name)
                         print(f"[FINALIZE] Cleaned up Gemini storage file: {p.name}")
                     except:
                         pass
@@ -340,9 +342,9 @@ async def finalize_field_report(
                 )
             
             report_id = save_report(firestore_record)
-            print(f"[FINALIZE] ✅ Saved to Firestore as: {report_id}")
+            print(f"[FINALIZE] (OK) Saved to Firestore as: {report_id}")
         except Exception as fs_err:
-            print(f"[FINALIZE] ⚠️ Firestore save failed (non-fatal): {fs_err}")
+            print(f"[FINALIZE] (WARN) Firestore save failed (non-fatal): {fs_err}")
             report_id = None
         
         return {
@@ -395,18 +397,45 @@ async def upload_media(file: UploadFile = File(...)):
 
 
 @router.get("/reports")
-async def get_reports():
+async def get_reports(citizen_id: Optional[str] = None, phone: Optional[str] = None):
     """
-    Endpoint to retrieve all submitted community reports from Firestore.
+    Endpoint to retrieve community reports, optionally filtered by citizen_id or phone.
     """
     try:
-        reports = get_all_reports()
+        all_reports = get_all_reports()
+        
+        if citizen_id:
+            filtered = [r for r in all_reports if r.get("citizen_id") == citizen_id]
+            return {"success": True, "reports": filtered}
+            
+        if phone:
+            filtered = [r for r in all_reports if r.get("phone") == phone]
+            return {"success": True, "reports": filtered}
+
         return {
             "success": True,
-            "reports": reports
+            "reports": all_reports
         }
     except Exception as e:
         print(f"Error in get-reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reports/{report_id}/resolve")
+async def resolve_report(report_id: str):
+    """
+    Marks a report as resolved and sets the resolved_at timestamp.
+    """
+    try:
+        from datetime import datetime
+        update_data = {
+            "status": "Resolved",
+            "resolved_at": datetime.utcnow().isoformat()
+        }
+        db.collection("community_reports").document(report_id).update(update_data)
+        return {"success": True, "message": "Report marked as resolved"}
+    except Exception as e:
+        print(f"Error resolving report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

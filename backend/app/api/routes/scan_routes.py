@@ -60,12 +60,16 @@ async def scan_form(file: UploadFile = File(...)):
             filename_override=file.filename,
         )
 
+        # Check if Gemini returned an error
+        ai_success = "error" not in result
+
         return {
-            "success": True,
+            "success": ai_success,
             "raw_text": raw_text,
             "parsed_data": result,
             "url": c_result["secure_url"],
-            "public_id": c_result["public_id"]
+            "public_id": c_result["public_id"],
+            "error": result.get("error") if not ai_success else None
         }
     except Exception as e:
         import traceback
