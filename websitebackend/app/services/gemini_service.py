@@ -4,11 +4,16 @@ import json
 import base64
 from app.config.settings import GEMINI_API_KEY
 
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY not found in environment variables")
+def _get_client():
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        return genai.Client(api_key=GEMINI_API_KEY)
+    except:
+        return None
 
-client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL_ID = 'gemini-2.5-flash'
+EMBED_MODEL_ID = 'gemini-embedding-001'
 
 REPORT_JSON_SCHEMA = """{
   "citizen_name": "",
@@ -184,6 +189,10 @@ def _call_gemini(prompt: str, attachments: list = None) -> dict:
                 print(f"[AI DATA] Skipping {att.get('filename')} ({mime})", flush=True)
 
     try:
+        client = _get_client()
+        if not client:
+            raise Exception("Gemini Client not initialized (missing API key)")
+            
         response = client.models.generate_content(
             model=MODEL_ID,
             contents=parts,
@@ -211,3 +220,53 @@ def _call_gemini(prompt: str, attachments: list = None) -> dict:
             "severity_score": 5,
             "urgency_level": "Moderate",
         }
+
+def generate_embedding(text: str) -> list[float]:
+    """Generate a vector embedding for a given text string."""
+    try:
+        client = _get_client()
+        if not client:
+            return []
+            
+        print(f"[AI EMBED] Generating embedding for text ({len(text)} chars)...", flush=True)
+        response = client.models.embed_content(
+            model=EMBED_MODEL_ID,
+            contents=text,
+            config=types.EmbedContentConfig(task_type='RETRIEVAL_DOCUMENT')
+        )
+        return response.embeddings[0].values
+    except Exception as e:
+        print(f"[AI EMBED ERROR] Failed to generate embedding: {e}", flush=True)
+        return []
+
+def get_report_context_string(report: dict) -> str:
+    """
+    Converts a structured report into a rich text string optimized for 
+    vector embedding and semantic search, including evidence findings.
+    """
+    summary = report.get("executive_summary", "")
+    category = f"{report.get('primary_category', '')} / {report.get('sub_category', '')}"
+    location = report.get("precise_location", "")
+    severity = f"Severity: {report.get('severity_score', 'N/A')}/10"
+    desc = report.get("description", "")
+    actions = report.get("ai_recommended_actions", "")
+    issues = ", ".join(report.get("key_complaints", []))
+    
+    # Extract evidence insights for deeper context
+    evidence = report.get("evidence_insights", {})
+    visual = "; ".join(evidence.get("visual_proof", []))
+    docs = "; ".join(evidence.get("documentary_evidence", []))
+    attachments = ", ".join([a.get('name', 'File') for a in report.get('attachments', [])]) if report.get('attachments') else "None"
+
+    return f"""
+    SUMMARY: {summary}
+    CATEGORY: {category}
+    LOCATION: {location}
+    IMPACT: {severity}. Population affected: {report.get('population_affected', 'Unknown')}.
+    ISSUES: {issues}
+    DESCRIPTION: {desc}
+    VISUAL FINDINGS: {visual}
+    DOCUMENTARY EVIDENCE: {docs}
+    ATTACHED FILES: {attachments}
+    RECOMMENDED ACTIONS: {actions}
+    """.strip()

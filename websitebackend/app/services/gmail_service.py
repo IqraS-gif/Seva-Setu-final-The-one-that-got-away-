@@ -7,7 +7,16 @@ import google.genai as genai  # type: ignore
 from google.genai import types
 from app.config.settings import GEMINI_API_KEY
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+def get_genai_client():
+    if not GEMINI_API_KEY:
+        print("⚠️ WARNING: GEMINI_API_KEY missing. AI classification will be disabled.", flush=True)
+        return None
+    try:
+        return genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        print(f"❌ ERROR: Failed to initialize Gemini Client: {e}", flush=True)
+        return None
+
 MODEL_ID = 'gemini-2.5-flash'
 
 GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -126,6 +135,10 @@ RULES:
 """
 
     try:
+        client = get_genai_client()
+        if not client:
+            raise Exception("AI Client not initialized (missing API Key)")
+            
         print(f"[AI CLASSIFY START] Processing {len(new_emails)} new emails with {MODEL_ID}...", flush=True)
         response = client.models.generate_content(
             model=MODEL_ID,
@@ -285,8 +298,7 @@ def get_email_metadata(access_token: str, message_id: str) -> dict | None:
     url = f"{GMAIL_API_BASE}/messages/{message_id}"
     params = {"format": "metadata", "metadataHeaders": ["Subject", "From", "Date"]}
     response = requests.get(url, headers=_get_headers(access_token), params=params)
-    if response.status_code != 200:
-        return None
+    response.raise_for_status()
     data = response.json()
     headers = {h["name"]: h["value"] for h in data.get("payload", {}).get("headers", [])}
     return {
