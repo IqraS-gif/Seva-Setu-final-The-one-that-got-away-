@@ -1,14 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Heatmap } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { MapMarker } from './MapMarker';
 import { colors, spacing, typography, globalStyles } from '../../theme';
+import { DynamicText } from '../DynamicText';
 
 export interface Issue {
   id: string;
   title: string;
+  category?: string;
+  summary?: string;
+  summaryField?: string;
   description: string;
+  descField?: string;
   priority: 'urgent' | 'medium' | 'resolved';
   latitude: number;
   longitude: number;
@@ -33,8 +38,17 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [showHeatmapLayer, setShowHeatmapLayer] = useState(false);
 
   const mapRef = React.useRef<MapView | null>(null);
+  
+  // 🛡️ Extra Guard: Wait 1 second after map is ready before showing Heatmap
+  useEffect(() => {
+    if (isMapReady) {
+      const timer = setTimeout(() => setShowHeatmapLayer(true), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [isMapReady]);
 
   // Focus User Logic
   const focusOnUser = (coords: { latitude: number, longitude: number }) => {
@@ -50,25 +64,38 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
 
   useEffect(() => {
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setErrorMsg('Permission to access location was denied');
-        return;
-      }
+      try {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setErrorMsg('Permission to access location was denied');
+          return;
+        }
 
-      // Try fast last known position first
-      const lastPos = await Location.getLastKnownPositionAsync({});
-      if (lastPos) {
-        setLocation(lastPos);
-        if (isMapReady) focusOnUser(lastPos.coords);
-      }
+        // Try fast last known position first
+        const lastPos = await Location.getLastKnownPositionAsync({});
+        if (lastPos && lastPos.coords) {
+          const { latitude, longitude } = lastPos.coords;
+          if (!isNaN(latitude) && !isNaN(longitude)) {
+            setLocation(lastPos);
+            if (isMapReady) focusOnUser({ latitude, longitude });
+          }
+        }
 
-      // Then get precise current position
-      let currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      setLocation(currentLocation);
-      if (isMapReady) focusOnUser(currentLocation.coords);
+        // Then get precise current position
+        let currentLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (currentLocation && currentLocation.coords) {
+          const { latitude, longitude } = currentLocation.coords;
+          if (!isNaN(latitude) && !isNaN(longitude)) {
+            setLocation(currentLocation);
+            if (isMapReady) focusOnUser({ latitude, longitude });
+          }
+        }
+      } catch (err) {
+        console.warn('Location error:', err);
+        setErrorMsg('Could not fetch current location');
+      }
     })();
   }, [isMapReady]);
 
@@ -102,11 +129,16 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
   };
 
   // Prepare points for Heatmap
-  const heatmapPoints = issues.map(iss => ({
-    latitude: iss.latitude,
-    longitude: iss.longitude,
-    weight: iss.priority === 'urgent' ? 3 : iss.priority === 'medium' ? 2 : 1
-  }));
+  const heatmapPoints = useMemo(() => {
+    if (!issues || !Array.isArray(issues)) return [];
+    return issues
+      .filter(i => i && typeof i.latitude === 'number' && typeof i.longitude === 'number' && !isNaN(i.latitude) && !isNaN(i.longitude))
+      .map(i => ({
+        latitude: i.latitude,
+        longitude: i.longitude,
+        weight: i.priority === 'urgent' ? 3 : i.priority === 'medium' ? 2 : 1
+      }));
+  }, [issues]);
 
   return (
     <View style={styles.container}>
@@ -124,11 +156,15 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
           longitudeDelta: 0.1,
         }}
       >
-        {location && (
+        {location?.coords && !isNaN(location.coords.latitude) && !isNaN(location.coords.longitude) && (
           <Marker
-            coordinate={{ latitude: location.coords.latitude, longitude: location.coords.longitude }}
+            coordinate={{ 
+              latitude: location.coords.latitude, 
+              longitude: location.coords.longitude 
+            }}
             title="You Are Here"
             description="Supervisor's current location"
+            tracksViewChanges={false}
           >
             <View style={styles.userMarkerOuter}>
               <View style={styles.userMarkerInner} />
@@ -136,7 +172,7 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
           </Marker>
         )}
 
-        {showHeatmap && heatmapPoints.length > 0 && (
+        {isMapReady && showHeatmap && showHeatmapLayer && heatmapPoints.length > 0 && (
           <Heatmap
             points={heatmapPoints}
             radius={40}
@@ -149,15 +185,19 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
           />
         )}
 
-        {issues.map((issue) => (
-          <Marker
-            key={issue.id}
-            coordinate={{ latitude: issue.latitude, longitude: issue.longitude }}
-            onPress={() => handleMarkerPress(issue)}
-          >
-            <View style={[styles.customMarker, { backgroundColor: getMarkerColorOverride(issue.priority) }]} />
-          </Marker>
-        ))}
+        {issues.map((issue) => {
+          if (!issue || isNaN(issue.latitude) || isNaN(issue.longitude)) return null;
+          return (
+            <Marker
+              key={issue.id}
+              coordinate={{ latitude: issue.latitude, longitude: issue.longitude }}
+              onPress={() => handleMarkerPress(issue)}
+              tracksViewChanges={false}
+            >
+              <View style={[styles.customMarker, { backgroundColor: getMarkerColorOverride(issue.priority) }]} />
+            </Marker>
+          );
+        })}
       </MapView>
       
       {errorMsg ? (
@@ -182,8 +222,25 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
               {selectedIssue.latitude.toFixed(4)}, {selectedIssue.longitude.toFixed(4)}
             </Text>
           </View>
-          <Text style={[typography.headingSmall, styles.issueTitle]} numberOfLines={1}>{selectedIssue.title}</Text>
-          <Text style={[typography.bodyText, styles.issueDesc]} numberOfLines={3}>{selectedIssue.description}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={[typography.headingSmall, styles.issueTitle, { flex: 0 }]}>{selectedIssue.category ? `${selectedIssue.category}: ` : ''}</Text>
+            <DynamicText 
+              text={selectedIssue.summary || selectedIssue.title} 
+              collection="reports"
+              docId={selectedIssue.id}
+              field={selectedIssue.summaryField}
+              style={[typography.headingSmall, styles.issueTitle, { flex: 1, fontWeight: '400' }]} 
+              numberOfLines={1} 
+            />
+          </View>
+          <DynamicText 
+            text={selectedIssue.description} 
+            collection="reports"
+            docId={selectedIssue.id}
+            field={selectedIssue.descField}
+            style={[typography.bodyText, styles.issueDesc]} 
+            numberOfLines={3} 
+          />
         </TouchableOpacity>
       )}
     </View>
