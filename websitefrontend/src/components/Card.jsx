@@ -1,26 +1,67 @@
-import React from 'react';
 import styled from 'styled-components';
+import { useNavigate } from 'react-router-dom';
 
 const features = [
-  { name: 'Email-to-Survey', desc: 'Auto-detect emails with "survey" in the subject line and extract content + attachments.', color: '240, 123, 17' },
-  { name: 'AI Reports', desc: 'Gemini AI transforms raw survey data into comprehensive structured civic reports.', color: '61, 169, 252' },
-  { name: 'Role-Based Access', desc: 'Distinct dashboards for Citizens, Volunteers, and Supervisors.', color: '255, 174, 92' },
-  { name: 'Live Analytics', desc: 'Track community issues across categories with real-time status updates.', color: '14, 84, 163' },
-  { name: 'Google Auth', desc: 'Secure sign-in with your Google account — no passwords to remember.', color: '250, 140, 50' }
+  { 
+    name: 'Volunteer App', 
+    desc: 'Empowering volunteers to lead community action with AI coordination.', 
+    color: '240, 123, 17',
+    path: '/dashboard'
+  },
+  { 
+    name: '3 Distinct Views', 
+    desc: 'Tailored portals for Citizens, Volunteers, and Supervisors.', 
+    color: '61, 169, 252',
+    path: '/dashboard'
+  },
+  { 
+    name: 'Google Sign-In', 
+    desc: 'Seamless and secure authentication for your profile.', 
+    color: '250, 140, 50',
+    path: '/auth'
+  },
+  { 
+    name: 'Live Surveys', 
+    desc: 'Dynamic data gathering for real-time community impact.', 
+    color: '14, 84, 163',
+    path: '/dashboard'
+  },
+  { 
+    name: 'Grievance Bots', 
+    desc: 'Report issues instantly via our WhatsApp & Telegram bots.', 
+    color: '37, 211, 102',
+    anchor: '#grievance'
+  },
+  { 
+    name: 'SevaSetu Mobile', 
+    desc: 'Download our companion app for civic action on the go.', 
+    color: '184, 28, 215',
+    anchor: '#download'
+  }
 ];
 
 const Card = () => {
+  const navigate = useNavigate();
+
+  const handleLearnMore = (feat) => {
+    if (feat.path) {
+      navigate(feat.path);
+    } else if (feat.anchor) {
+      window.location.href = feat.anchor;
+    }
+  };
+
   return (
     <StyledWrapper>
       <div className="wrapper">
-        <div className="inner" style={{ '--quantity': 5 }}>
+        <div className="inner" style={{ '--quantity': 6 }}>
           {features.map((feat, index) => (
             <div className="card" key={index} style={{ '--index': index, '--color-card': feat.color }}>
               <div className="img">
                 <div className="content">
                   <h3>{feat.name}</h3>
                   <p>{feat.desc}</p>
-                  <button>Learn More</button>
+                  <button onClick={() => handleLearnMore(feat)}>Learn More</button>
                 </div>
               </div>
             </div>

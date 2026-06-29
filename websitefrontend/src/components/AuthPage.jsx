@@ -70,7 +70,10 @@ const AuthPage = () => {
       // Register user with backend
       try {
         const idToken = await result.user.getIdToken();
-        await fetch('http://localhost:8001/auth/google', {
+        const rawUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+        const baseUrl = (window.location.protocol === 'https:' && rawUrl.startsWith('http://'))
+          ? rawUrl.replace('http://', 'https://') : rawUrl;
+        await fetch(`${baseUrl}/auth/google`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -89,7 +92,7 @@ const AuthPage = () => {
       if (err.code === 'auth/popup-closed-by-user') {
         setError('Sign-in popup was closed. Please try again.');
       } else if (err.code === 'auth/unauthorized-domain') {
-        setError('This domain is not authorized. Add localhost to Firebase Auth authorized domains.');
+        setError(`This domain (${window.location.hostname}) is not authorized. Please add it to the Authorized Domains list in the Firebase Console (under Authentication -> Settings).`);
       } else {
         setError(`Sign-in failed: ${err.code || err.message}`);
       }
