@@ -5,5 +5,15 @@ pydantic
 firebase-admin
 python-dotenv
 google-genai
+google-cloud-aiplatform
+google-cloud-bigquery
+google-cloud-storage
+scikit-learn
+pandas
+textblob
+joblib
+db-dtypes
 requests
 cloudinary
+numpy
+groq

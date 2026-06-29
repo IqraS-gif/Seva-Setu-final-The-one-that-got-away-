@@ -1,21 +1,33 @@
 from fastapi import FastAPI  # type: ignore
 from fastapi.middleware.cors import CORSMiddleware  # type: ignore
-from app.api.routes import auth_routes, email_routes, report_routes
+print("🚀 Starting SevaSetu Backend...", flush=True)
+
+try:
+    print("📦 Loading auth search...", flush=True)
+    from app.api.routes import auth_routes
+    print("📦 Loading email engine...", flush=True)
+    from app.api.routes import email_routes
+    print("📦 Loading report analytics...", flush=True)
+    from app.api.routes import report_routes
+    print("📦 Loading risk intelligence...", flush=True)
+    from app.api.routes import risk_routes
+except Exception as e:
+    print(f"🔥 CRITICAL IMPORT ERROR: {e}", flush=True)
+    import traceback
+    traceback.print_exc()
+    raise e
 
 app = FastAPI(
     title="SevaSetu Website Backend",
     description="Backend API for SevaSetu Community Service Platform — Email-to-Survey pipeline with Gemini AI",
     version="1.0.0",
+    redirect_slashes=False,
 )
 
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",   # Vite dev server
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,6 +37,7 @@ app.add_middleware(
 app.include_router(auth_routes.router)
 app.include_router(email_routes.router)
 app.include_router(report_routes.router)
+app.include_router(risk_routes.router)
 
 
 @app.get("/")
