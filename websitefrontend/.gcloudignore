@@ -1,0 +1,13 @@
+.gcloudignore
+.git
+.gitignore
+node_modules/
+dist/
+# .env  <-- We NEED the .env file for Vite to build the Firebase credentials into the frontend
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+.antigravity/
+.gemini/
