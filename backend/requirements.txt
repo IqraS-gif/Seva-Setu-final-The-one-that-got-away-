@@ -12,6 +12,11 @@ python-multipart
 pydantic
 firebase-admin
 python-dotenv
-google-generativeai
+google-genai
 groq
 cloudinary
+requests
+google-cloud-documentai
+jinja2
+qrcode[pil]
+PyJWT
