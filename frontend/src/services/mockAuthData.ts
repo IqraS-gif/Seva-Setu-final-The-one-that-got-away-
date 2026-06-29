@@ -2,6 +2,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  password?: string; // New: support individual passwords
   role: 'CITIZEN' | 'VOLUNTEER' | 'SUPERVISOR';
   ngo_id?: string;
   ngo_name?: string;
@@ -15,6 +16,7 @@ export const MOCK_USERS: User[] = [
   { id: 'cit_003', name: 'Ajay Verma', email: 'ajay@example.com', role: 'CITIZEN' },
   { id: 'cit_004', name: 'Sneha Reddy', email: 'sneha@example.com', role: 'CITIZEN' },
   { id: 'cit_005', name: 'Rohan Malhotra', email: 'rohan@example.com', role: 'CITIZEN' },
+  { id: 'cit_006', name: 'Demo Citizen', email: 'citizen@demo.com', role: 'CITIZEN' },
 
   // --- VOLUNTEERS ---
   { id: 'vol_rahul_01', name: 'Rahul Gupta', email: 'rahul@volunteer.com', role: 'VOLUNTEER', ngo_id: 'ngo_helping_hands', ngo_name: 'Helping Hands Foundation' },
@@ -24,8 +26,8 @@ export const MOCK_USERS: User[] = [
   { id: 'vol_sameer_05', name: 'Sameer Khan', email: 'sameer@volunteer.com', role: 'VOLUNTEER', ngo_id: 'ngo_sevabharti', ngo_name: 'Seva Bharti' },
 
   // --- SUPERVISORS ---
-  { id: 'sup_deepak_1', name: 'Deepak Chawla', email: 'deepak@ngo.com', role: 'SUPERVISOR', ngo_id: 'ngo_helping_hands', ngo_name: 'Helping Hands Foundation' },
+  { id: 'sup_deepak_1', name: 'Deepak Supervisor', email: 'deepak@ngo.com', password: 'pass123', role: 'SUPERVISOR', ngo_id: 'ngo_helping_hands', ngo_name: 'Helping Hands Foundation' },
   { id: 'sup_arvinder_2', name: 'Dr. Arvinder Singh', email: 'arvinder@ngo.com', role: 'SUPERVISOR', ngo_id: 'ngo_sevabharti', ngo_name: 'Seva Bharti' },
 ];
 
-export const MOCK_PASSWORD = 'password123';
+export const MOCK_PASSWORD = 'pass123';
