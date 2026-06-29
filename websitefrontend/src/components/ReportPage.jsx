@@ -11,7 +11,11 @@ import { motion } from 'framer-motion';
 import ImageViewer from './ImageViewer';
 import DocumentViewer from './DocumentViewer';
 
-const BACKEND_URL = 'http://localhost:8001';
+// Force https in production to prevent Mixed Content errors
+const _rawBackendUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const BACKEND_URL = (window.location.protocol === 'https:' && _rawBackendUrl.startsWith('http://'))
+  ? _rawBackendUrl.replace('http://', 'https://')
+  : _rawBackendUrl;
 
 /* ── Helpers ── */
 const getSeverityColor = (score) => {
@@ -224,7 +228,7 @@ const ReportPage = () => {
 
       // 2. Fetch/Refresh from server
       try {
-        const res = await fetch(`http://127.0.0.1:8001/emails/report/${id}`);
+        const res = await fetch(`${BACKEND_URL}/emails/report/${id}`);
         if (!res.ok) throw new Error('Report not found');
         const data = await res.json();
         setReport(data.report);
