@@ -40,4 +40,12 @@ Thumbs.db
 backend/logs/
 /temp/
 /tmp/
-updated_data.csv
+
+# Runtime / temp files generated locally
+backend/error.txt
+backend/voice_debug.log
+backend/translation_state.json
+backend/uploads/
+
+# Local developer scripts (contain machine-specific paths)
+cleanup_zahid.py
