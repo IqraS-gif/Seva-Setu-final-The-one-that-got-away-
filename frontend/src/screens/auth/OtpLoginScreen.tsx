@@ -7,10 +7,12 @@ import { PrimaryButton, MadeInIndiaBadge, GradientBackground } from '../../compo
 import { useAuthStore } from '../../services/store/useAuthStore';
 import { FirebaseRecaptchaVerifierModal } from '../../components/FirebaseRecaptcha';
 import { auth } from '../../config/firebaseConfig';
+import { useLanguage } from '../../context/LanguageContext';
 
 export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => void }) => {
   const navigation = useNavigation<any>();
   const { sendOtp, verifyOtp } = useAuthStore();
+  const { t } = useLanguage();
   const route = useRoute<any>();
   const role = route.params?.role || 'CITIZEN';
   
@@ -48,11 +50,11 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
             useNativeDriver: true,
           }).start();
         } else {
-          Alert.alert('Error', result.message || 'Failed to send OTP.');
+          Alert.alert(t('common.error'), result.message || t('auth.otp.failedSend'));
         }
       } catch (err: any) {
         console.error('[Phone Auth] Error:', err);
-        Alert.alert('Error', err.message || 'Failed to send OTP. Please check your phone number and project settings.');
+        Alert.alert(t('common.error'), err.message || t('auth.otp.error'));
       } finally {
         setLoading(false);
       }
@@ -65,10 +67,10 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
       try {
         const result = await verifyOtp(confirmation, otp, role);
         if (!result.success) {
-          Alert.alert('Verification Failed', result.message);
+          Alert.alert(t('common.error'), result.message);
         }
       } catch (err) {
-        Alert.alert('Error', 'Invalid OTP or verification failed.');
+        Alert.alert(t('common.error'), t('auth.otp.verifyError'));
       } finally {
         setLoading(false);
       }
@@ -91,20 +93,20 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
             </TouchableOpacity>
-            <Text style={styles.title}>Login with OTP</Text>
+            <Text style={styles.title}>{t('auth.otp.title')}</Text>
             <Text style={styles.subtitle}>
-              We'll send a 6-digit code to verify your number.
+              {t('auth.otp.subtitle')}
             </Text>
           </View>
 
           <View style={styles.content}>
             <View style={[globalStyles.card, styles.formCard]}>
-              <Text style={styles.label}>Phone Number</Text>
+              <Text style={styles.label}>{t('auth.otp.phoneLabel')}</Text>
               <View style={styles.inputContainer}>
                 <Text style={styles.prefix}>+91</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Enter 10 digit number"
+                  placeholder={t('auth.otp.phonePlaceholder')}
                   keyboardType="phone-pad"
                   maxLength={10}
                   value={phoneNumber}
@@ -113,25 +115,25 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
                 />
                 {isOtpSent && (
                   <TouchableOpacity onPress={() => setIsOtpSent(false)}>
-                    <Text style={styles.changeLink}>Change</Text>
+                    <Text style={styles.changeLink}>{t('auth.otp.changePhone')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
 
               {!isOtpSent ? (
                 <PrimaryButton 
-                  title={loading ? "Sending..." : "Send OTP"} 
+                  title={loading ? t('auth.otp.sending') : t('auth.otp.sendButton')} 
                   onPress={handleSendOtp} 
                   disabled={phoneNumber.length !== 10 || loading}
                   style={styles.button}
                 />
               ) : (
                 <Animated.View style={{ opacity: otpAnimation }}>
-                  <Text style={styles.label}>Enter OTP</Text>
+                  <Text style={styles.label}>{t('auth.otp.otpLabel')}</Text>
                   <View style={styles.inputContainer}>
                     <TextInput
                       style={styles.textInput}
-                      placeholder="6-digit code"
+                      placeholder={t('auth.otp.otpPlaceholder')}
                       keyboardType="number-pad"
                       maxLength={6}
                       value={otp}
@@ -141,19 +143,19 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
                   
                   <View style={styles.timerRow}>
                     {timer > 0 ? (
-                      <Text style={styles.timerText}>Resend OTP in {timer}s</Text>
+                      <Text style={styles.timerText}>{t('auth.otp.resendText')} {timer}s</Text>
                     ) : (
                       <TouchableOpacity onPress={() => {
                         setTimer(30);
                         handleSendOtp();
                       }}>
-                        <Text style={styles.resendLink}>Resend OTP</Text>
+                        <Text style={styles.resendLink}>{t('auth.otp.resendButton')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
 
                   <PrimaryButton 
-                    title={loading ? "Verifying..." : "Verify & Login"} 
+                    title={loading ? t('auth.otp.verifying') : t('auth.otp.verifyButton')} 
                     onPress={handleVerify} 
                     disabled={otp.length !== 6 || loading}
                     style={styles.button}
@@ -171,6 +173,7 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
     </GradientBackground>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {

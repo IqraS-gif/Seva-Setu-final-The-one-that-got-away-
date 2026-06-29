@@ -23,7 +23,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { audioService } from '../../services/chat/AudioRecordingService';
@@ -32,15 +32,18 @@ import { useChatStore } from '../../services/store/useChatStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
 import { useEventStore } from '../../services/store/useEventStore';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { UserAvatar, IconButton, GradientBackground } from '../../components';
+import { UserAvatar, IconButton, GradientBackground, DynamicText } from '../../components';
 import { uploadToCloudinary, uploadPdfViaBackend, formatFileSize } from '../../services/api/uploadToCloudinary';
 import { API_BASE_URL } from '../../config/apiConfig';
+import { useLanguage } from '../../context/LanguageContext';
+import { getBilingualText, getBilingualArray } from '../../utils/bilingualHelpers';
 
 // ── Components ────────────────────────────────────────────────────────────────
 
 // ── Components ────────────────────────────────────────────────────────────────
 
 const ContextCard = ({ message, isSelf, role }: { message: any; isSelf: boolean; role: string }) => {
+  const { t } = useLanguage();
   const data = message.metadata || {};
   const isSupervisor = role === 'SUPERVISOR';
   
@@ -58,18 +61,14 @@ const ContextCard = ({ message, isSelf, role }: { message: any; isSelf: boolean;
             <Text style={[styles.contextTitle, { color: isSelf ? '#fff' : colors.textPrimary }]}>
               Mission Context Attached
             </Text>
-            <Text style={[styles.contextLabel, { color: isSelf ? 'rgba(255,255,255,0.8)' : colors.primaryGreen, fontWeight: '700' }]}>
-              {data.event_name || 'Active Mission'}
-            </Text>
+            <DynamicText style={[styles.contextLabel, { color: isSelf ? 'rgba(255,255,255,0.8)' : colors.primaryGreen, fontWeight: '700' }]} text={data.event_name || 'Active Mission'} />
           </View>
         </View>
 
         <View style={[styles.contextDivider, { backgroundColor: isSelf ? 'rgba(255,255,255,0.15)' : '#EEE' }]} />
 
         <View style={styles.contextBody}>
-          <Text style={[styles.contextDesc, { color: isSelf ? 'rgba(255,255,255,0.9)' : colors.textSecondary }]} numberOfLines={3}>
-            {data.event_description || 'No detailed description provided for this mission context.'}
-          </Text>
+          <DynamicText style={[styles.contextDesc, { color: isSelf ? 'rgba(255,255,255,0.9)' : colors.textSecondary }]} numberOfLines={3} text={data.event_description || 'No detailed description provided for this mission context.'} />
 
           <View style={styles.contextInfoRow}>
             <View style={styles.contextStat}>
@@ -79,9 +78,7 @@ const ContextCard = ({ message, isSelf, role }: { message: any; isSelf: boolean;
               <Text style={[styles.contextStatLabel, { color: isSelf ? 'rgba(255,255,255,0.6)' : colors.textSecondary }]}>Match</Text>
             </View>
             <View style={[styles.contextStat, { borderLeftWidth: 1, borderRightWidth: 1, borderColor: isSelf ? 'rgba(255,255,255,0.1)' : '#EEE', paddingHorizontal: 15 }]}>
-              <Text style={[styles.contextStatVal, { color: isSelf ? '#fff' : colors.primaryGreen }]}>
-                {data.area || 'Zone A'}
-              </Text>
+              <DynamicText style={[styles.contextStatVal, { color: isSelf ? '#fff' : colors.primaryGreen }]} text={data.area || 'Zone A'} />
               <Text style={[styles.contextStatLabel, { color: isSelf ? 'rgba(255,255,255,0.6)' : colors.textSecondary }]}>Area</Text>
             </View>
             <View style={styles.contextStat}>
@@ -93,11 +90,16 @@ const ContextCard = ({ message, isSelf, role }: { message: any; isSelf: boolean;
           </View>
 
           <View style={styles.skillsTagRow}>
-            {(data.skills || ['First Aid', 'Logistics']).map((s: string) => (
-              <View key={s} style={[styles.miniSkillTag, { backgroundColor: isSelf ? 'rgba(255,255,255,0.15)' : 'rgba(16, 185, 129, 0.08)' }]}>
-                <Text style={[styles.miniSkillText, { color: isSelf ? '#fff' : colors.primaryGreen }]}>{s}</Text>
-              </View>
-            ))}
+            {(data.skills || ['first_aid', 'logistics']).map((s: string) => {
+              const translatedSkill = t(`skills.${s}`) !== `skills.${s}` ? t(`skills.${s}`) : s.replace('_', ' ');
+              return (
+                <View key={s} style={[styles.miniSkillTag, { backgroundColor: isSelf ? 'rgba(255,255,255,0.15)' : 'rgba(16, 185, 129, 0.08)' }]}>
+                  <Text style={[styles.miniSkillText, { color: isSelf ? '#fff' : colors.primaryGreen }]}>
+                    {translatedSkill}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
         </View>
       </LinearGradient>
@@ -397,7 +399,7 @@ const MessageBubble = React.memo(({
       <TouchableOpacity 
         activeOpacity={0.8}
         onLongPress={() => onLongPress?.(message)}
-        style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper, { maxWidth: '90%' }]}
+        style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper, { width: '85%', maxWidth: 300 }]}
       >
         <ContextCard message={message} isSelf={isSelf} role={role} />
         <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
@@ -488,6 +490,7 @@ const analysisMarkdownStyles = {
 };
 
 export const ChatScreen = () => {
+  const { t, language } = useLanguage();
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const { 
@@ -499,13 +502,13 @@ export const ChatScreen = () => {
   } = route.params || {};
 
 
-  const { role } = useAuthStore();
+  const { role, user } = useAuthStore();
   const { volunteerId: currentVolunteerId, volunteerProfile } = useEventStore();
   
-  // Deterministic current user ID based on role
-  const currentUserId = role === 'SUPERVISOR' ? 'sup_deepak_1' : currentVolunteerId;
+  // Always use the real authenticated user's ID — no hardcoding
+  const currentUserId = user?.id || currentVolunteerId || '';
   const isSupervisor = role === 'SUPERVISOR';
-  const myName = isSupervisor ? 'Deepak Supervisor' : (volunteerProfile?.name || 'Volunteer');
+  const myName = user?.name || (isSupervisor ? 'Supervisor' : 'Volunteer');
 
   const { 
     messages, 
@@ -679,7 +682,7 @@ export const ChatScreen = () => {
       const fileName = `SevaSetu_Report_${roomId}.pdf`;
       const fileUri = `${FileSystem.documentDirectory}${fileName}`;
       
-      const downloadUrl = `${API_BASE_URL}/chat/report/${roomId}?event_name=${encodeURIComponent(event_name)}`;
+      const downloadUrl = `${API_BASE_URL}/chat/report/${roomId}?event_name=${encodeURIComponent(event_name)}&lang=${language}`;
       
       const downloadRes = await FileSystem.downloadAsync(downloadUrl, fileUri);
       
@@ -1069,7 +1072,7 @@ export const ChatScreen = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.summaryModal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>✨ Gemini Chat Summary</Text>
+              <Text style={styles.modalTitle}>{t('chat.quickSummaryTitle')}</Text>
               <TouchableOpacity onPress={() => setShowSummary(false)} style={styles.modalCloseIcon}>
                 <Feather name="x" size={20} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -1082,12 +1085,12 @@ export const ChatScreen = () => {
                 </View>
               ) : (
                 <Markdown style={markdownStyles}>
-                  {summary || 'No actionable takeaways found.'}
+                  {getBilingualText(summary, language) || 'No actionable takeaways found.'}
                 </Markdown>
               )}
             </ScrollView>
             <TouchableOpacity style={styles.modalFooterBtn} onPress={() => setShowSummary(false)}>
-              <Text style={styles.modalFooterBtnText}>Acknowledge</Text>
+              <Text style={styles.modalFooterBtnText}>{t('chat.acknowledge')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1166,7 +1169,7 @@ export const ChatScreen = () => {
         >
           <View style={styles.mediaPickerSheet}>
             <View style={styles.mediaPickerHandle} />
-            <Text style={styles.mediaPickerTitle}>✨ SevaSetu AI Intelligence</Text>
+            <Text style={styles.mediaPickerTitle}>✨ {t('chat.aiIntelligence')}</Text>
             
             <TouchableOpacity 
               style={styles.mediaPickerOption} 
@@ -1180,8 +1183,8 @@ export const ChatScreen = () => {
                 <Feather name="list" size={22} color="#00796B" />
               </View>
               <View>
-                <Text style={styles.mediaPickerLabel}>Quick Summary</Text>
-                <Text style={styles.mediaPickerDesc}>Fast takeaway of current conversation</Text>
+                <Text style={styles.mediaPickerLabel}>{t('chat.quickSummary')}</Text>
+                <Text style={styles.mediaPickerDesc}>{t('chat.quickSummaryDesc')}</Text>
               </View>
             </TouchableOpacity>
 
@@ -1197,8 +1200,8 @@ export const ChatScreen = () => {
                 <Feather name="trending-up" size={22} color="#7B1FA2" />
               </View>
               <View>
-                <Text style={styles.mediaPickerLabel}>Deep Chat Analysis</Text>
-                <Text style={styles.mediaPickerDesc}>Rich insights, sentiment, & mission alignment</Text>
+                <Text style={styles.mediaPickerLabel}>{t('chat.deepAnalysis')}</Text>
+                <Text style={styles.mediaPickerDesc}>{t('chat.deepAnalysisDesc')}</Text>
               </View>
             </TouchableOpacity>
 
@@ -1213,8 +1216,8 @@ export const ChatScreen = () => {
                 <Feather name="message-square" size={22} color="#1976D2" />
               </View>
               <View>
-                <Text style={styles.mediaPickerLabel}>Ask AI About This Chat</Text>
-                <Text style={styles.mediaPickerDesc}>Memory-aware Q&A for this conversation</Text>
+                <Text style={styles.mediaPickerLabel}>{t('chat.askAi')}</Text>
+                <Text style={styles.mediaPickerDesc}>{t('chat.askAiDesc')}</Text>
               </View>
             </TouchableOpacity>
 
@@ -1226,13 +1229,13 @@ export const ChatScreen = () => {
                 <Feather name="download" size={22} color="#2E7D32" />
               </View>
               <View>
-                <Text style={styles.mediaPickerLabel}>Download Full Report (PDF)</Text>
-                <Text style={styles.mediaPickerDesc}>Save professional analysis to your device</Text>
+                <Text style={styles.mediaPickerLabel}>{t('chat.downloadPdf')}</Text>
+                <Text style={styles.mediaPickerDesc}>{t('chat.downloadPdfDesc')}</Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.mediaPickerCancel} onPress={() => setShowIntelligenceMenu(false)}>
-              <Text style={styles.mediaPickerCancelText}>Cancel</Text>
+              <Text style={styles.mediaPickerCancelText}>{t('chat.cancel')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -1253,7 +1256,7 @@ export const ChatScreen = () => {
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={{ fontSize: 24, marginRight: 8 }}>🤖</Text>
-                <Text style={styles.modalTitle}>Ask SevaSetu AI</Text>
+                <Text style={styles.modalTitle}>{t('chat.askAiTitle')}</Text>
               </View>
               
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1292,7 +1295,7 @@ export const ChatScreen = () => {
                 {aiHistory.length === 0 && !loadingAskAi ? (
                   <View style={styles.emptyAskAi}>
                     <Feather name="cpu" size={40} color="#DDD" />
-                    <Text style={styles.emptyAskAiText}>Ask me any specific question about what you discussed in this chat.</Text>
+                    <Text style={styles.emptyAskAiText}>{t('chat.askAiDesc')}</Text>
                   </View>
                 ) : (
                   <View>
@@ -1334,7 +1337,7 @@ export const ChatScreen = () => {
               <View style={styles.askAiInputRow}>
                 <TextInput
                   style={styles.askAiInput}
-                  placeholder="e.g. What was the budget we discussed?"
+                  placeholder={t('chat.askAiPlaceholder')}
                   value={aiQuestion}
                   onChangeText={setAiQuestion}
                   onSubmitEditing={handleAskAi}
@@ -1355,11 +1358,11 @@ export const ChatScreen = () => {
       {/* ── Full Analysis Modal ── */}
       <Modal visible={showFullAnalysis} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.summaryModal, { height: '85%', width: '92%' }]}>
+          <View style={[styles.summaryModal, { maxHeight: '85%', width: '92%' }]}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>📊 Deep Chat Analysis</Text>
-                <Text style={styles.modalSubtitle}>{event_name}</Text>
+                <Text style={styles.modalTitle}>{t('chat.deepAnalysisTitle')}</Text>
+                <DynamicText style={styles.modalSubtitle} text={event_name} />
               </View>
               <TouchableOpacity onPress={() => setShowFullAnalysis(false)} style={styles.modalCloseIcon}>
                 <Feather name="x" size={20} color={colors.textSecondary} />
@@ -1391,14 +1394,14 @@ export const ChatScreen = () => {
                   <View style={styles.analysisCard}>
                     <Text style={styles.analysisLabel}>MISSION EXECUTIVE SUMMARY</Text>
                     <Markdown style={analysisMarkdownStyles}>
-                      {analysis.executive_summary || "No executive summary available."}
+                      {getBilingualText(analysis.executive_summary, language) || "No executive summary available."}
                     </Markdown>
                   </View>
 
                   {/* 2. Visual Insights & Attachments */}
                   {analysis.visual_insights?.length > 0 && (
                     <View style={styles.analysisCard}>
-                      <Text style={styles.analysisLabel}>VISUAL INSIGHTS & ATTACHMENTS</Text>
+                      <Text style={styles.analysisLabel}>{t('volunteer.scan.visualInsights').toUpperCase()}</Text>
                       {analysis.visual_insights.map((item: any, idx: number) => (
                         <View key={idx} style={{ marginBottom: 10 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -1406,7 +1409,7 @@ export const ChatScreen = () => {
                             <Text style={{ fontWeight: '700', fontSize: 13, color: colors.textPrimary }}>{item.name}</Text>
                           </View>
                           <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 4, fontStyle: 'italic' }}>
-                            {item.summary}
+                            {getBilingualText(item.summary, language)}
                           </Text>
                         </View>
                       ))}
@@ -1416,42 +1419,42 @@ export const ChatScreen = () => {
                   {/* 3. Volunteer Readiness */}
                   {analysis.volunteer_readiness && (
                     <View style={styles.analysisCard}>
-                      <Text style={styles.analysisLabel}>VOLUNTEER READINESS ASSESSMENT</Text>
+                      <Text style={styles.analysisLabel}>{t('volunteer.scan.volunteerReadiness').toUpperCase()}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, marginTop: 4 }}>
                         <View style={{
                           backgroundColor: 
-                            analysis.volunteer_readiness.status === 'Ready' ? '#E8F5E9' : 
-                            analysis.volunteer_readiness.status === 'Not Ready' ? '#FFEBEE' : '#FFF3E0',
+                            getBilingualText(analysis.volunteer_readiness.status, language) === 'Ready' ? '#E8F5E9' : 
+                            getBilingualText(analysis.volunteer_readiness.status, language) === 'Not Ready' ? '#FFEBEE' : '#FFF3E0',
                           paddingHorizontal: 12,
                           paddingVertical: 4,
                           borderRadius: 20,
                           borderWidth: 1,
                           borderColor: 
-                            analysis.volunteer_readiness.status === 'Ready' ? '#81C784' : 
-                            analysis.volunteer_readiness.status === 'Not Ready' ? '#E57373' : '#FFB74D',
+                            getBilingualText(analysis.volunteer_readiness.status, language) === 'Ready' ? '#81C784' : 
+                            getBilingualText(analysis.volunteer_readiness.status, language) === 'Not Ready' ? '#E57373' : '#FFB74D',
                         }}>
                           <Text style={{
                             color: 
-                              analysis.volunteer_readiness.status === 'Ready' ? '#2E7D32' : 
-                              analysis.volunteer_readiness.status === 'Not Ready' ? '#C62828' : '#EF6C00',
+                              getBilingualText(analysis.volunteer_readiness.status, language) === 'Ready' ? '#2E7D32' : 
+                              getBilingualText(analysis.volunteer_readiness.status, language) === 'Not Ready' ? '#C62828' : '#EF6C00',
                             fontWeight: '800',
                             fontSize: 12,
                             textTransform: 'uppercase'
                           }}>
-                            {analysis.volunteer_readiness.status}
+                            {getBilingualText(analysis.volunteer_readiness.status, language)}
                           </Text>
                         </View>
                       </View>
                       <Text style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 20 }}>
-                        {analysis.volunteer_readiness.reasoning}
+                        {getBilingualText(analysis.volunteer_readiness.reasoning, language)}
                       </Text>
                     </View>
                   )}
 
                   <View style={styles.analysisCard}>
-                    <Text style={styles.analysisLabel}>MISSION OBJECTIVES & TOPICS</Text>
+                    <Text style={styles.analysisLabel}>{t('volunteer.scan.missionObjectives').toUpperCase()}</Text>
                     <View style={styles.skillsTagRow}>
-                      {analysis.issues_discussed?.map((topic: string) => (
+                      {getBilingualArray(analysis.issues_discussed, language)?.map((topic: string) => (
                         <View key={topic} style={[styles.miniSkillTag, { backgroundColor: '#F3E5F5' }]}>
                           <Text style={[styles.miniSkillText, { color: '#7B1FA2' }]}>{topic}</Text>
                         </View>
@@ -1460,8 +1463,8 @@ export const ChatScreen = () => {
                   </View>
 
                   <View style={styles.analysisCard}>
-                    <Text style={styles.analysisLabel}>CRITICAL THINKING & INSIGHTS</Text>
-                    {analysis.key_insights?.map((insight: string, idx: number) => (
+                    <Text style={styles.analysisLabel}>{t('volunteer.scan.criticalInsights').toUpperCase()}</Text>
+                    {getBilingualArray(analysis.key_insights, language)?.map((insight: string, idx: number) => (
                       <View key={idx} style={styles.insightRow}>
                         <View style={styles.insightDot} />
                         <Text style={styles.insightText}>{insight}</Text>
@@ -1470,8 +1473,8 @@ export const ChatScreen = () => {
                   </View>
 
                   <View style={styles.analysisCard}>
-                    <Text style={styles.analysisLabel}>MISSION ACTION ITEMS</Text>
-                    {analysis.action_items?.map((item: string, idx: number) => (
+                    <Text style={styles.analysisLabel}>{t('volunteer.scan.actionItems').toUpperCase()}</Text>
+                    {getBilingualArray(analysis.action_items, language)?.map((item: string, idx: number) => (
                       <View key={idx} style={styles.actionRow}>
                         <Feather name="square" size={14} color={colors.primaryGreen} />
                         <Text style={styles.actionText}>{item}</Text>
@@ -1480,7 +1483,7 @@ export const ChatScreen = () => {
                   </View>
 
                   <View style={styles.analysisCard}>
-                    <Text style={styles.analysisLabel}>PROFESSIONAL COMMUNICATION METRICS</Text>
+                    <Text style={styles.analysisLabel}>{t('volunteer.scan.communicationMetrics').toUpperCase()}</Text>
                     <View style={styles.metricsRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.metricLabel}>Mission Clarity Score</Text>
@@ -1491,7 +1494,7 @@ export const ChatScreen = () => {
                       <Text style={styles.metricVal}>{analysis.quality_score}/10</Text>
                     </View>
                     <Text style={styles.sentimentHint}>
-                      Overall Tone: {analysis.sentiment_breakdown?.overall || "N/A"}
+                      Overall Tone: {getBilingualText(analysis.sentiment_breakdown?.overall, language) || "N/A"}
                     </Text>
                   </View>
                 </View>
@@ -1517,7 +1520,7 @@ export const ChatScreen = () => {
               onPress={handleDownloadReport}
             >
               <Feather name="download" size={18} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={styles.modalFooterBtnText}>Download PDF Report</Text>
+              <Text style={styles.modalFooterBtnText}>{t('chat.downloadPdfBtn')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1652,7 +1655,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   richContextCard: {
-    width: 300,
+    width: '100%',
     borderRadius: 20,
     overflow: 'hidden',
     elevation: 3,
@@ -1810,7 +1813,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   summaryContent: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -2401,6 +2405,8 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 12,
     alignSelf: 'center',
+    width: '90%',
+    maxHeight: '75%',
   },
   emptyCard: {
     flex: 1,

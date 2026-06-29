@@ -11,6 +11,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../../theme/colors';
 import { useAuthStore } from '../../services/store/useAuthStore';
+import { GradientBackground, AshokaChakra, MadeInIndiaBadge } from '../../components';
 
 const { width } = Dimensions.get('window');
 
@@ -40,10 +41,14 @@ const SplashScreen: React.FC = () => {
 
     // Navigation timer
     const timer = setTimeout(() => {
-      if (hasOnboarded) {
-        navigation.replace('Landing' as any);
-      } else {
-        navigation.replace('OnboardingScreen');
+      // Safety check: navigation.replace only exists on Stack navigators.
+      // If used inside RootNavigator as a loading state, it might not have stack methods.
+      if (typeof navigation.replace === 'function') {
+        if (hasOnboarded) {
+          navigation.replace('Landing' as any);
+        } else {
+          navigation.replace('OnboardingScreen');
+        }
       }
     }, 2800);
 
@@ -51,7 +56,11 @@ const SplashScreen: React.FC = () => {
   }, [navigation, hasOnboarded]);
 
   return (
-    <View style={styles.container}>
+    <GradientBackground variant="auth" style={styles.container}>
+      <Animated.View style={[styles.chakraContainer]}>
+        <AshokaChakra size={width * 1.2} opacity={0.03} />
+      </Animated.View>
+      
       <Animated.View style={animatedStyle}>
         <Image
           source={require('../../assets/images/logo.png')}
@@ -59,21 +68,43 @@ const SplashScreen: React.FC = () => {
           resizeMode="contain"
         />
       </Animated.View>
-    </View>
+
+      <Animated.View style={styles.footer}>
+        <MadeInIndiaBadge />
+      </Animated.View>
+    </GradientBackground>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  chakraContainer: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: -1,
   },
   logo: {
-    width: width * 0.7,
-    height: width * 0.7,
+    width: width * 0.6,
+    height: width * 0.6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 40,
+    width: '100%',
+    alignItems: 'center',
   },
 });
+
 
 export default SplashScreen;
