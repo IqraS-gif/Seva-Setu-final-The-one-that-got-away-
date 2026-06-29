@@ -62,7 +62,7 @@ interface EventState {
   loadVolunteerProfile: (volunteerId: string) => Promise<void>;
   loadAllVolunteerProfiles: () => Promise<void>;
   loadLiveMatches: (volunteerId: string) => Promise<void>;
-  joinMatch: (eventId: string, volunteerId: string, status: 'accepted' | 'declined', match_score?: number, score_breakdown?: any) => Promise<void>;
+  joinMatch: (eventId: string, volunteerId: string, status: 'accepted' | 'declined', match_score?: number, score_breakdown?: any, supervisor_id?: string, supervisor_name?: string) => Promise<void>;
   syncVolunteerProfile: (user: any) => Promise<void>; // New: Ensures profile exists
   loadTasks: (assignmentId: string) => Promise<void>;
   addTask: (assignmentId: string, description: string, proofRequired?: boolean) => Promise<void>;
@@ -83,6 +83,8 @@ interface EventState {
     area?: string;
     suggested_govt_scheme?: string;
     required_skills?: string[];
+    supervisor_id?: string;
+    supervisor_name?: string;
   }) => Promise<void>;
   dismissEvent: (eventId: string) => Promise<void>;
   deleteEvent: (eventId: string) => Promise<void>;
@@ -312,7 +314,7 @@ export const useEventStore = create<EventState>((set, get) => ({
     }
   },
 
-  joinMatch: async (eventId: string, volunteerId: string, status: 'accepted' | 'declined', match_score?: number, score_breakdown?: any) => {
+  joinMatch: async (eventId: string, volunteerId: string, status: 'accepted' | 'declined', match_score?: number, score_breakdown?: any, supervisor_id?: string, supervisor_name?: string) => {
     set({ loadingAction: true });
     try {
       await api.joinLiveMatch({ 
@@ -320,7 +322,9 @@ export const useEventStore = create<EventState>((set, get) => ({
         volunteer_id: volunteerId, 
         status,
         match_score,
-        score_breakdown
+        score_breakdown,
+        supervisor_id: supervisor_id || '',
+        supervisor_name: supervisor_name || '',
       });
       // Refresh both
       const [assignments, liveMatches] = await Promise.all([
