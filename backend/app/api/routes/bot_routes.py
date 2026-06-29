@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from app.models.report_model import ReportCreate
 from app.services.firestore_service import save_report
 from app.services.ngo_service import get_nearest_ngo_by_coords, get_nearest_ngo_by_city
+from app.services.gemini_service import enrich_bot_report
 from typing import Optional
 
 router = APIRouter()
@@ -10,12 +11,33 @@ router = APIRouter()
 async def submit_bot_report(report: ReportCreate):
     """
     Endpoint for the Telegram bot to submit a citizen report.
-    It automatically assigns the report to the nearest NGO.
+    It automatically assigns the report to the nearest NGO and enriches the data with AI.
     """
     try:
-        report_dict = report.dict()
+        # 1. AI Enrichment (Enrich text description and photo into a full report)
+        print(f"[bot-report] Enriching report via Gemini: {report.description[:50]}...")
+        photo_url = report.photo_url
+        if not photo_url and report.media_attachments:
+            photo_url = next((m["url"] for m in report.media_attachments if m["type"] == "image"), None)
+            
+        enriched_data = enrich_bot_report(
+            description=report.description or "",
+            category=report.primary_category or "Other",
+            photo_url=photo_url,
+            location=report.location
+        )
         
-        # Auto-assignment logic
+        # Merge enriched data into the report dict
+        report_dict = report.dict()
+        for key, value in enriched_data.items():
+            # Only update if the enriched data has a value
+            if value:
+                # If the UI expects plain strings, we might need to flatten bilingual objects
+                # However, the Scan & Survey screens show bilingual data if present.
+                # To be safe, we'll store the bilingual objects as Gemini returns them.
+                report_dict[key] = value
+        
+        # 2. Auto-assignment logic
         assigned_ngo = None
         
         # 1. Try by GPS coordinates
@@ -39,8 +61,7 @@ async def submit_bot_report(report: ReportCreate):
             print(f"[bot-report] No matching NGO found for location: {report.location or report.gps_coordinates}")
 
         # Ensure source is marked
-        if not report_dict.get("report_source"):
-            report_dict["report_source"] = "telegram_bot"
+        report_dict["report_source"] = "telegram_bot"
 
         report_id = save_report(report_dict)
         

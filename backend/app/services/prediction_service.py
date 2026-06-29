@@ -1,21 +1,24 @@
-"""
-prediction_service.py
-Uses Gemini to analyze past community complaint data + contextual signals
-and generate realistic predicted events for NGO coordinators.
-"""
-
-import google.generativeai as genai  # type: ignore
+from google import genai  # type: ignore
 import os
 import json
 from dotenv import load_dotenv  # type: ignore
 from datetime import datetime, timedelta
 import random
+import time
+
+# Centralized intelligence from gemini_service
+from app.services.gemini_service import (
+    retry_with_backoff, 
+    api_keys,
+    current_key_index,
+    model_name
+)
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+# Configuration is now centralized in gemini_service
+pass
+
 
 
 # ─────────────────────────────────────────────
@@ -71,7 +74,7 @@ Return ONLY a valid JSON array of exactly 5 objects. No markdown, no explanation
         print(f"[Gemini Prediction Engine] Prompt Length: {len(prompt)} chars")
         print(f"[Gemini Prediction Engine] Historical Data Summary Trace: {historical_summary[:200]}...")
 
-        response = model.generate_content(prompt)
+        response = retry_with_backoff(None, prompt)
         text = response.text.strip()
         
         print(f"\n--- [Gemini Prediction Engine] SUCCESS. Response Type: {type(response).__name__}")

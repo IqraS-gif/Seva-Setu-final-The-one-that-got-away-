@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
-import google.generativeai as genai
+from google import genai
 import cloudinary
 import cloudinary.uploader
 import cloudinary.utils
@@ -24,6 +24,7 @@ from app.services.chat_analysis_service import (
 )
 from app.services.chat_report_service import generate_chat_report_pdf
 from app.services.attachment_intelligence_service import analyze_attachment_on_upload # type: ignore
+from app.services.gemini_service import BILINGUAL_INSTRUCTION
 
 load_dotenv()
 
@@ -163,8 +164,8 @@ async def get_signed_url(public_id: str, version: Optional[str] = None, extensio
 
 # Configure Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+client = genai.Client(api_key=GEMINI_API_KEY)
+model_name = 'gemini-2.5-flash'
 
 class ChatMessage(BaseModel):
     role: str  # 'volunteer' | 'supervisor' | 'system'
@@ -200,22 +201,40 @@ Your task is to summarize the following conversation between a Supervisor and a 
 CONVERSATION:
 {conversation_text}
 
+""" + BILINGUAL_INSTRUCTION + """
 Provide a concise summary in the following format:
 1. **Status**: (e.g. Agreement reached, Pending clarification, Declined)
 2. **Key Takeaways**: (2-3 bullet points of what was discussed)
 3. **Action Items**: (What needs to happen next)
 
-Keep it professional and brief.
+Return ONLY valid JSON:
+{
+  "summary": {"en": "Full markdown summary here...", "hi": "पूरा हिंदी सारांश यहाँ..."}
+}
 """
 
     try:
         print(f"\n--- [Gemini Summary] Generating for event: {req.context_event} ---")
         print(f"[Gemini Summary] Prompt Length: {len(prompt)} chars")
         
-        response = model.generate_content(prompt)
-        summary_text = response.text.strip()
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+        text_content = response.text.strip()
         
-        print(f"[Gemini Summary] SUCCESS. Response Length: {len(summary_text)} chars")
+        if text_content.startswith("```json"):
+            text_content = text_content[7:]
+            text_content = text_content.rsplit("```", 1)[0]
+        elif text_content.startswith("```"):
+            text_content = text_content[3:]
+            text_content = text_content.rsplit("```", 1)[0]
+            
+        import json
+        data = json.loads(text_content.strip())
+        summary_val = data.get("summary", "Summary unavailable.")
+        
+        print(f"[Gemini Summary] SUCCESS.")
         
         # ── Trigger Background Embedding ──
         # This ensures the 'Ask AI' context stays fresh when we summarize.
@@ -228,7 +247,7 @@ Keep it professional and brief.
         chunks = build_chat_chunks([m.dict() for m in req.messages], v_name, s_name)
         background_tasks.add_task(embed_and_store_chunks, room_id, chunks)
         
-        return {"success": True, "summary": summary_text}
+        return {"success": True, "summary": summary_val}
     except Exception as e:
         print(f"\n!!! [Gemini Summary ERROR] !!!")
         print(f"Error Type: {type(e).__name__}")
@@ -674,7 +693,7 @@ async def analyze_chat_endpoint(req: AnalyzeChatRequest, background_tasks: Backg
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 @router.get("/chat/report/{room_id}")
-async def get_chat_report(room_id: str, event_name: str = ""):
+async def get_chat_report(room_id: str, event_name: str = "", lang: str = "en"):
     """
     Generates and returns a PDF report based on the cached analysis.
     """
@@ -691,7 +710,7 @@ async def get_chat_report(room_id: str, event_name: str = ""):
             analysis = doc.to_dict()
 
         # 2. Generate PDF
-        pdf_bytes = generate_chat_report_pdf(analysis, event_name, room_id)
+        pdf_bytes = generate_chat_report_pdf(analysis, event_name, room_id, lang)
         
         # 3. Stream Response
         from io import BytesIO
@@ -777,7 +796,10 @@ async def ask_chat_endpoint(req: AskChatRequest):
         Answer professionally and concisely.
         """
         
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
         answer = response.text.strip()
         
         # 4. Persistence: Save Q&A to Firestore under this room

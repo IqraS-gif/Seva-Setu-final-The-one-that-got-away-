@@ -1,22 +1,32 @@
 from app.config.firebase_config import db # type: ignore
 from firebase_admin import firestore # type: ignore
+from google.cloud.firestore_v1.base_query import FieldFilter # type: ignore
+from typing import Any
 
-def get_previous_complaints_insights(primary_category: str, sub_category: str) -> str:
+def get_previous_complaints_insights(primary_category: Any, sub_category: Any) -> str:
     """
     Queries Firestore to find historical data on similar complaints.
     Provides a text-based insight for the AI to include in the structured report.
     """
     try:
+        # Resolve bilingual objects to strings for the database query with null safety
+        p_cat_str = ""
+        if primary_category:
+            p_cat_str = primary_category.get("en") if isinstance(primary_category, dict) else primary_category
+            
+        s_cat_str = ""
+        if sub_category:
+            s_cat_str = sub_category.get("en") if isinstance(sub_category, dict) else sub_category
+
+        if not p_cat_str or not s_cat_str:
+            return "Not enough data for historical comparison."
+
         # Query Firestore for reports within the same primary/sub category
-        # Using 'community_reports' collection as seen in firestore_service.py
         collection_ref = db.collection("community_reports")
         
-        # Simple query for exact matches on category and subcategory
-        # Note: We are using a simple where filter here. 
-        # In modern Firestore, you might need an index if you perform multiple where clauses, 
-        # but for small scales or single fields it should be fine.
-        query_ref = collection_ref.where("primary_category", "==", primary_category) \
-                             .where("sub_category", "==", sub_category) \
+        # Simple query for exact matches on category and subcategory using FieldFilter to avoid warnings
+        query_ref = collection_ref.where(filter=FieldFilter("primary_category", "==", p_cat_str)) \
+                             .where(filter=FieldFilter("sub_category", "==", s_cat_str)) \
                              .limit(20)
         
         docs = query_ref.stream()
@@ -36,10 +46,10 @@ def get_previous_complaints_insights(primary_category: str, sub_category: str) -
                 resolved_count += 1
         
         if count == 0:
-            return f"No previous records for {sub_category} under {primary_category} were found in the system yet."
+            return f"No previous records for '{s_cat_str}' under '{p_cat_str}' were found in the system yet."
         
         avg_severity = total_severity / count if count > 0 else 0
-        insight = f"There have been {count} similar reports of {sub_category} recorded."
+        insight = f"There have been {count} similar reports of '{s_cat_str}' recorded."
         
         if resolved_count > 0:
             insight += f" Notably, {resolved_count} of these have been successfully resolved."
