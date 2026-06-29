@@ -123,6 +123,7 @@ export const ReportsScreen = () => {
   const [selected, setSelected] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [displayedCount, setDisplayedCount] = useState(10);
 
   // Full Image Viewer
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -136,14 +137,20 @@ export const ReportsScreen = () => {
       setError(null);
       const res = await fetch(`${API_BASE_URL}/reports`);
       const json = await res.json();
-      if (json.success) setReports(json.reports);
-      else setError('Failed to fetch reports.');
+      if (json.success) {
+        setReports(json.reports);
+        setDisplayedCount(10); // Reset count on fetch
+      } else setError('Failed to fetch reports.');
     } catch (e) { setError('Could not connect to server.'); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
   useFocusEffect(useCallback(() => { setLoading(true); fetchReports(); }, []));
   const onRefresh = () => { setRefreshing(true); fetchReports(); };
+
+  useEffect(() => {
+    setDisplayedCount(10); // Reset count when category changes
+  }, [selectedCategory]);
 
   const handleDeleteReport = async (id: string) => {
     Alert.alert(
@@ -186,6 +193,16 @@ export const ReportsScreen = () => {
       r.issue_type === selectedCategory
     );
   }, [reports, selectedCategory]);
+
+  const displayedReports = useMemo(() => {
+    return filteredReports.slice(0, displayedCount);
+  }, [filteredReports, displayedCount]);
+
+  const handleLoadMore = () => {
+    if (displayedCount < filteredReports.length) {
+      setDisplayedCount(prev => prev + 10);
+    }
+  };
 
   const renderItem = ({ item }: { item: Report }) => {
     const cat = item.auto_category || item.primary_category || item.issue_type || 'Unknown';
@@ -244,10 +261,12 @@ export const ReportsScreen = () => {
         </View>
       ) : (
         <FlatList
-          data={filteredReports}
+          data={displayedReports}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          contentContainerStyle={filteredReports.length === 0 ? styles.emptyContainer : styles.listContent}
+          contentContainerStyle={displayedReports.length === 0 ? styles.emptyContainer : styles.listContent}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           ListEmptyComponent={
             <View style={styles.centred}>

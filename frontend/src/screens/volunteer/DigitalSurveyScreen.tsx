@@ -1,3 +1,4 @@
+import { useLanguage } from '../../context/LanguageContext';
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
@@ -30,6 +31,7 @@ const URGENCY_LEVELS = ['Immediate', 'Critical', 'Moderate', 'Low'];
 const SENTIMENTS = ['Hopeful', 'Angry', 'Desperate', 'Frustrated', 'Neutral'];
 
 export const DigitalSurveyScreen = () => {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const [mode, setMode] = useState<'idle' | 'success'>('idle');
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null);
@@ -69,7 +71,7 @@ export const DigitalSurveyScreen = () => {
   const handleGetLocation = async () => {
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission to access location was denied');
+      Alert.alert(t('survey.permissionDenied'));
       return;
     }
     const loc = await Location.getCurrentPositionAsync({});
@@ -174,7 +176,7 @@ export const DigitalSurveyScreen = () => {
   };
   const handleSubmit = async () => {
     if (!citizenName || !locationText || !primaryCategory || !problemStatus || !urgencyLevel) {
-      Alert.alert('Missing Fields', 'Please fill all mandatory fields marked with *');
+      Alert.alert(t('survey.missingFields'), t('survey.missingFieldsMsg'));
       return;
     }
 
@@ -264,15 +266,15 @@ export const DigitalSurveyScreen = () => {
   if (mode === 'success') {
     return (
       <View style={styles.container}>
-        <AppHeader title="Survey Completed" />
+        <AppHeader title={t('survey.surveyCompleted')} />
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl }}>
           <Feather name="check-circle" size={100} color={colors.success} />
-          <Text style={{ ...typography.headingLarge, marginTop: spacing.xl, textAlign: 'center' }}>Successfully Submitted!</Text>
+          <Text style={{ ...typography.headingLarge, marginTop: spacing.xl, textAlign: 'center' }}>{t('survey.successfullySubmitted')}</Text>
           <Text style={{ ...typography.bodyText, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.md, marginBottom: spacing.xxl }}>
-            Your digital survey has been securely logged into the SevaSetu database and is ready for analysis.
+            {t('survey.surveyLogged')}
           </Text>
           <PrimaryButton 
-            title="View Report Details" 
+            title={t('survey.viewReportDetails')}  
             onPress={() => {
               setMode('idle');
               navigation.navigate('Scan Survey', { autoOpenReportId: submittedReportId });
@@ -280,7 +282,7 @@ export const DigitalSurveyScreen = () => {
             style={{ width: '100%', marginBottom: spacing.lg }}
           />
           <TouchableOpacity onPress={() => setMode('idle')} style={{ padding: spacing.md }}>
-            <Text style={{ ...typography.bodyText, color: colors.primaryGreen, fontWeight: '700' }}>Submit Another Form</Text>
+            <Text style={{ ...typography.bodyText, color: colors.primaryGreen, fontWeight: '700' }}>{t('survey.submitAnother')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -289,49 +291,49 @@ export const DigitalSurveyScreen = () => {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <AppHeader title="Digital Survey Form" />
+      <AppHeader title={t('survey.title')} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* Section 1: Who & Where */}
         <Animated.View entering={FadeInDown.delay(100).springify()} style={styles.section}>
-          <Text style={styles.sectionTitle}>1. Who & Where</Text>
-          <FormField label="Citizen Name *" value={citizenName} onChangeText={setCitizenName} placeholder="Enter name" />
-          <FormField label="Phone Number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="e.g. 9876543210" />
+          <Text style={styles.sectionTitle}>{t('survey.whoAndWhere')}</Text>
+          <FormField label={t('survey.citizenName')}  value={citizenName} onChangeText={setCitizenName} placeholder={t('survey.enterName')} />
+          <FormField label={t('survey.phoneNumber')} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder={t('survey.phonePlaceholder')}  />
           <View style={styles.rowField}>
             <View style={{ flex: 1 }}>
-              <FormField label="Precise Location *" value={locationText} onChangeText={setLocationText} placeholder="e.g. Block A, Near Well" />
+              <FormField label={t('survey.preciseLocation')}  value={locationText} onChangeText={setLocationText} placeholder={t('survey.locationPlaceholder')}  />
             </View>
             <TouchableOpacity style={styles.gpsBtn} onPress={handleGetLocation}>
               <Feather name="map-pin" size={20} color="#fff" />
             </TouchableOpacity>
           </View>
           {gpsCoordinates ? <Text style={styles.gpsText}>GPS: {gpsCoordinates}</Text> : null}
-          <FormField label="Demographic Tally (Household Size)" value={demographicTally} onChangeText={setDemographicTally} keyboardType="numeric" placeholder="e.g. 5" />
+          <FormField label={t('survey.demographicTally')} value={demographicTally} onChangeText={setDemographicTally} keyboardType="numeric" placeholder={t('survey.demographicPlaceholder')} />
         </Animated.View>
 
         {/* Section 2: Problem Details */}
         <Animated.View entering={FadeInDown.delay(200).springify()} style={styles.section}>
-          <Text style={styles.sectionTitle}>2. The Problem</Text>
+          <Text style={styles.sectionTitle}>{t('survey.theProblem')}</Text>
           <DropdownField 
-            label="Primary Category *" 
+            label={t('survey.primaryCategory')} 
             options={PRIMARY_CATEGORIES} 
             selected={primaryCategory} 
             onSelect={(val: string) => { setPrimaryCategory(val); setSubCategory(''); }} 
           />
           {primaryCategory ? (
             <DropdownField 
-              label="Sub-Category" 
+              label={t('survey.subCategory')} 
               options={SUB_CATEGORIES[primaryCategory] || ['Other']} 
               selected={subCategory} 
               onSelect={setSubCategory} 
             />
           ) : null}
-          <RadioGroup label="Problem Status *" options={PROBLEM_STATUSES} selected={problemStatus} onSelect={setProblemStatus} />
-          <RadioGroup label="Urgency Level *" options={URGENCY_LEVELS} selected={urgencyLevel} onSelect={setUrgencyLevel} />
-          <FormField label="Duration of Problem" value={duration} onChangeText={setDuration} placeholder="e.g. 3 Weeks" />
+          <RadioGroup label={t('survey.problemStatus')} options={PROBLEM_STATUSES} selected={problemStatus} onSelect={setProblemStatus} />
+          <RadioGroup label={t('survey.urgencyLevel')} options={URGENCY_LEVELS} selected={urgencyLevel} onSelect={setUrgencyLevel} />
+          <FormField label={t('survey.duration')} value={duration} onChangeText={setDuration} placeholder={t('survey.durationPlaceholder')} />
           
           <View style={styles.switchRow}>
-            <Text style={styles.label}>Service Currently Active?</Text>
+            <Text style={styles.label}>{t('survey.serviceActive')}</Text>
             <TouchableOpacity style={[styles.switch, serviceStatus && styles.switchActive]} onPress={() => setServiceStatus(!serviceStatus)}>
               <View style={[styles.switchKnob, serviceStatus && styles.switchKnobActive]} />
             </TouchableOpacity>
@@ -340,12 +342,12 @@ export const DigitalSurveyScreen = () => {
 
         {/* Section 3: Impact */}
         <Animated.View entering={FadeInDown.delay(300).springify()} style={styles.section}>
-          <Text style={styles.sectionTitle}>3. Impact Assessment</Text>
-          <FormField label="Affected Population Size" value={populationAffected} onChangeText={setPopulationAffected} keyboardType="numeric" placeholder="e.g. 50" />
-          <RadioGroup label="Vulnerability Flag" options={['High', 'Medium', 'Low']} selected={vulnerabilityFlag} onSelect={setVulnerabilityFlag} />
-          <FormField label="Secondary Impact" value={secondaryImpact} onChangeText={setSecondaryImpact} placeholder="e.g. Health - Illness" />
+          <Text style={styles.sectionTitle}>{t('survey.impactAssessment')}</Text>
+          <FormField label={t('survey.affectedPopulation')} value={populationAffected} onChangeText={setPopulationAffected} keyboardType="numeric" placeholder={t('survey.populationPlaceholder')} />
+          <RadioGroup label={t('survey.vulnerabilityFlag')} options={['High', 'Medium', 'Low']} selected={vulnerabilityFlag} onSelect={setVulnerabilityFlag} />
+          <FormField label={t('survey.secondaryImpact')} value={secondaryImpact} onChangeText={setSecondaryImpact} placeholder={t('survey.secondaryPlaceholder')} />
           
-          <Text style={styles.label}>Safety Rating (1 = Very Unsafe, 5 = Very Safe)</Text>
+          <Text style={styles.label}>{t('survey.safetyRating')}</Text>
           <View style={styles.likertRow}>
             {[1, 2, 3, 4, 5].map(num => (
               <TouchableOpacity key={num} style={[styles.likertBtn, safetyRating === num && styles.likertActive]} onPress={() => setSafetyRating(num)}>
@@ -357,10 +359,10 @@ export const DigitalSurveyScreen = () => {
 
         {/* Section 4: Qualitative */}
         <Animated.View entering={FadeInDown.delay(400).springify()} style={styles.section}>
-          <Text style={styles.sectionTitle}>4. Community Voice</Text>
-          <Text style={styles.label}>Key Complaints / Keywords</Text>
+          <Text style={styles.sectionTitle}>{t('survey.communityVoice')}</Text>
+          <Text style={styles.label}>{t('survey.keyComplaints')}</Text>
           <View style={styles.tagInputRow}>
-            <TextInput style={styles.tagInput} value={complaintInput} onChangeText={setComplaintInput} placeholder="Add a complaint keyword..." onSubmitEditing={handleAddComplaint} />
+            <TextInput style={styles.tagInput} value={complaintInput} onChangeText={setComplaintInput} placeholder={t('survey.complaintPlaceholder')}  onSubmitEditing={handleAddComplaint} />
             <TouchableOpacity style={styles.addTagBtn} onPress={handleAddComplaint}>
               <Feather name="plus" size={20} color="#fff" />
             </TouchableOpacity>
@@ -376,19 +378,19 @@ export const DigitalSurveyScreen = () => {
             ))}
           </View>
           
-          <RadioGroup label="Community Sentiment" options={SENTIMENTS} selected={sentiment} onSelect={setSentiment} />
-          <FormField label="Notable Quote" value={quote} onChangeText={setQuote} multiline placeholder="Direct quote from resident..." />
-          <FormField label="Detailed Description" value={description} onChangeText={setDescription} multiline placeholder="Elaborate details..." />
+          <RadioGroup label={t('survey.communitySentiment')}  options={SENTIMENTS} selected={sentiment} onSelect={setSentiment} />
+          <FormField label={t('survey.notableQuote')}  value={quote} onChangeText={setQuote} multiline placeholder={t('survey.quotePlaceholder')}  />
+          <FormField label={t('survey.detailedDescription')}  value={description} onChangeText={setDescription} multiline placeholder={t('survey.describeIssue')}  />
         </Animated.View>
 
         {/* Section 5: Media */}
         <Animated.View entering={FadeInDown.delay(500).springify()} style={styles.section}>
-          <Text style={styles.sectionTitle}>5. Attachments</Text>
+          <Text style={styles.sectionTitle}>{t('survey.uploadPhotos')}</Text>
           <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
             <TouchableOpacity style={[styles.mediaBtn, { flex: 1 }]} onPress={handlePickImage}>
               <Feather name="camera" size={24} color={photoUri ? colors.success : colors.primaryGreen} />
               <Text style={[styles.mediaBtnText, photoUri && { color: colors.success }]}>
-                {photoUri ? 'Photo Attached' : 'Attach Photo'}
+                {photoUri ? t('survey.photoAttached') : t('survey.attachPhoto')}
               </Text>
             </TouchableOpacity>
             
@@ -407,15 +409,15 @@ export const DigitalSurveyScreen = () => {
                 isRecording && { color: colors.error },
                 audioUri && { color: colors.success }
               ]}>
-                {isRecording ? 'Stop Recording' : (audioUri ? 'Audio Attached' : 'Voice Note')}
+                {isRecording ? t('survey.stopRecording') : (audioUri ? t('survey.audioAttached') : t('survey.voiceNote'))}
               </Text>
             </TouchableOpacity>
           </View>
-          {audioUri && <Text style={{ ...typography.captionText, color: colors.success, textAlign: 'center' }}>Long-press Voice Note to clear</Text>}
+          {audioUri && <Text style={{ ...typography.captionText, color: colors.success, textAlign: 'center' }}>{t('survey.longPressClear')}</Text>}
         </Animated.View>
 
         <PrimaryButton
-          title={loading ? "Submitting..." : "Submit Survey"}
+          title={loading ? t('survey.submitting') : t('survey.submit')}
           onPress={handleSubmit}
           style={styles.submitBtn}
           disabled={loading}
@@ -427,39 +429,49 @@ export const DigitalSurveyScreen = () => {
 };
 
 // ─── Subcomponents ───
-const FormField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', multiline = false }: any) => (
-  <View style={styles.fieldContainer}>
-    <Text style={styles.label}>{label}</Text>
-    <TextInput
-      style={[styles.input, multiline && styles.textArea]}
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      keyboardType={keyboardType}
-      multiline={multiline}
-      placeholderTextColor={colors.textSecondary + '80'}
-    />
-  </View>
-);
-
-const RadioGroup = ({ label, options, selected, onSelect }: any) => (
-  <View style={styles.fieldContainer}>
-    <Text style={styles.label}>{label}</Text>
-    <View style={styles.radioGroup}>
-      {options.map((opt: string) => (
-        <TouchableOpacity
-          key={opt}
-          style={[styles.radioBtn, selected === opt && styles.radioBtnActive]}
-          onPress={() => onSelect(opt)}
-        >
-          <Text style={[styles.radioText, selected === opt && styles.radioTextActive]}>{opt}</Text>
-        </TouchableOpacity>
-      ))}
+const FormField = ({ label, value, onChangeText, placeholder, keyboardType = 'default', multiline = false }: any) => {
+  const { t } = useLanguage();
+  return (
+    <View style={styles.fieldContainer}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={[styles.input, multiline && styles.textArea]}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        keyboardType={keyboardType}
+        multiline={multiline}
+        placeholderTextColor={colors.textSecondary + '80'}
+      />
     </View>
-  </View>
-);
+  );
+};
 
-const DropdownField = ({ label, options, selected, onSelect, placeholder = 'Select an option' }: any) => {
+const RadioGroup = ({ label, options, selected, onSelect }: any) => {
+  const { t } = useLanguage();
+  return (
+    <View style={styles.fieldContainer}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.radioGroup}>
+        {options.map((opt: string) => (
+          <TouchableOpacity
+            key={opt}
+            style={[styles.radioBtn, selected === opt && styles.radioBtnActive]}
+            onPress={() => onSelect(opt)}
+          >
+            <Text style={[styles.radioText, selected === opt && styles.radioTextActive]}>
+              {t(`survey.${opt}`) !== `survey.${opt}` ? t(`survey.${opt}`) : opt}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+const DropdownField = ({ label, options, selected, onSelect, placeholder }: any) => {
+  const { t } = useLanguage();
+  const displayPlaceholder = placeholder || t('survey.selectOption');
   const [isOpen, setIsOpen] = useState(false);
   return (
     <View style={styles.fieldContainer}>
@@ -470,7 +482,7 @@ const DropdownField = ({ label, options, selected, onSelect, placeholder = 'Sele
         activeOpacity={0.8}
       >
         <Text numberOfLines={1} style={{ ...typography.bodyText, flex: 1, color: selected ? colors.textPrimary : colors.textSecondary + '80' }}>
-          {selected || placeholder}
+          {selected ? (t(`survey.${selected}`) !== `survey.${selected}` ? t(`survey.${selected}`) : selected) : displayPlaceholder}
         </Text>
         <Feather name="chevron-down" size={20} color={colors.textSecondary} />
       </TouchableOpacity>
@@ -489,7 +501,7 @@ const DropdownField = ({ label, options, selected, onSelect, placeholder = 'Sele
                       onPress={() => { onSelect(opt); setIsOpen(false); }}
                     >
                       <Text style={{ ...typography.bodyText, fontSize: 15, color: selected === opt ? colors.primaryGreen : colors.textPrimary, fontWeight: selected === opt ? '700' : '400' }}>
-                        {opt}
+                        {t(`survey.${opt}`) !== `survey.${opt}` ? t(`survey.${opt}`) : opt}
                       </Text>
                     </TouchableOpacity>
                   ))}

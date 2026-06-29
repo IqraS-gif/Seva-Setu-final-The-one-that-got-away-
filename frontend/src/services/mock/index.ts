@@ -93,10 +93,10 @@ export const MOCK_MISSIONS: Mission[] = [
 ];
 
 export const MOCK_STATS = {
-  activeVolunteers: 124,
-  openMissions: 28,
-  issuesReported: 312,
-  totalImpactHours: '12.4k',
+  activeVolunteers: 12,
+  openMissions: 16,
+  issuesReported: 21,
+  totalImpactHours: '1.3k',
 };
 
 export const MOCK_CITIZEN_STATS = {

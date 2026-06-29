@@ -5,26 +5,11 @@
  */
 
 import { Platform } from 'react-native';
-import Constants from 'expo-constants'; // Added for dynamic IP
+import { API_BASE_URL } from '../../config/apiConfig';
 
 // ── Base URL ──────────────────────────────────────────────────────────────────
 // 📱 Dynamic Base URL: use localhost for Web, extract LAN IP from Metro for physical devices
-const getBaseUrl = () => {
-  if (Platform.OS === 'web') return 'http://localhost:8000';
-  
-  // Extract host IP from Metro Bundler URI (e.g., 192.168.x.x:8081 -> 192.168.x.x:8000)
-  const hostUri = Constants.expoConfig?.hostUri; 
-  if (hostUri) {
-    const ip = hostUri.split(':')[0];
-    console.log(`[API Config] Dynamic URL detected: http://${ip}:8000`);
-    return `http://${ip}:8000`;
-  }
-  
-  // Fallback to a common local IP if Metro URI is missing
-  return 'http://192.168.0.102:8000'; 
-};
-
-export const BASE_URL = getBaseUrl();
+export const BASE_URL = API_BASE_URL;
 
 // Set to true if you are offline or the backend is down during the demo
 const USE_MOCK_ONLY = false;
@@ -81,6 +66,8 @@ export interface VolunteerAssignment {
   status: 'pending' | 'accepted' | 'declined';
   is_fallback: boolean;
   created_at?: string;
+  supervisor_id?: string;   // Who assigned/confirmed this event
+  supervisor_name?: string; // Supervisor's display name
 }
 
 export interface VolunteerProfile {
@@ -132,6 +119,8 @@ export interface LiveMatch {
   description?: string; // Added: Supervisor description
   ai_reasoning: string;
   is_live_match: true;
+  supervisor_id?: string;   // Who owns this event
+  supervisor_name?: string; // Supervisor's display name
 }
 
 export interface AiMessage {
@@ -178,6 +167,30 @@ export interface ChatMessage {
   file_public_id?: string; // Cloudinary public ID for signed URL generation
   file_version?: string;   // Cloudinary version (v17...)
   file_extension?: string; // Cloudinary format (pdf, jpg, etc.)
+}
+
+export interface ChatAnalysis {
+  executive_summary: { en: string; hi: string };
+  visual_insights: {
+    name: string;
+    type: 'pdf' | 'image';
+    summary: { en: string; hi: string };
+  }[];
+  issues_discussed: { en: string; hi: string }[];
+  mission_context: { en: string; hi: string };
+  key_insights: { en: string; hi: string }[];
+  volunteer_readiness: {
+    status: { en: string; hi: string };
+    reasoning: { en: string; hi: string };
+  };
+  action_items: { en: string; hi: string }[];
+  sentiment_breakdown: {
+    supervisor: { en: string; hi: string };
+    volunteer: { en: string; hi: string };
+    overall: { en: string; hi: string };
+  };
+  quality_score: number;
+  timestamp: string;
 }
 
 export interface ChatRoom {
@@ -235,6 +248,7 @@ export async function apiFetch<T>(
   }
 }
 
+
 // ── Predictions ───────────────────────────────────────────────────────────────
 
 export async function generatePredictions(area = 'Maharashtra'): Promise<PredictedEvent[]> {
@@ -251,8 +265,10 @@ export async function fetchPredictions(): Promise<PredictedEvent[]> {
     // data.predictions could be [] which is valid — backend is reachable, DB is empty
     return Array.isArray(data.predictions) ? data.predictions : [];
   } catch (e) {
-    // Only use mocks if the backend is physically unreachable (network down)
-    console.warn('[eventPredictionService] Backend unreachable, using mocks:', e);
+    const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+    console.warn('[eventPredictionService] fetchPredictions failure:', errorMsg);
+    
+    // Only use mocks if the backend is physically unreachable
     return MOCK_PREDICTIONS;
   }
 }
@@ -271,6 +287,8 @@ export async function confirmPrediction(eventId: string, options?: {
   geofence_radius?: number;
   required_skills?: string[];
   suggested_govt_scheme?: string;
+  supervisor_id?: string;
+  supervisor_name?: string;
 }): Promise<{ assignments: VolunteerAssignment[] }> {
   const data = await apiFetch<any>(`/predictions/${eventId}/confirm`, { 
     method: 'POST',
@@ -435,6 +453,8 @@ export async function joinLiveMatch(payload: {
   status: 'accepted' | 'declined';
   match_score?: number;
   score_breakdown?: any;
+  supervisor_id?: string;
+  supervisor_name?: string;
 }): Promise<void> {
   await apiFetch('/events/live/join', {
     method: 'POST',
@@ -509,7 +529,7 @@ export async function fetchUserRooms(userId: string): Promise<ChatRoom[]> {
   }
 }
 
-export async function summarizeChat(messages: any[], contextEvent?: string, roomId?: string): Promise<string> {
+export async function summarizeChat(messages: any[], contextEvent?: string, roomId?: string): Promise<any> {
   const data = await apiFetch<any>('/chat/summarize', {
     method: 'POST',
     body: JSON.stringify({ room_id: roomId, messages, context_event: contextEvent }),
@@ -522,10 +542,6 @@ export async function analyzeChat(roomId: string, eventName?: string): Promise<a
   const data = await apiFetch<any>('/chat/analyze', {
     method: 'POST',
     body: JSON.stringify({ room_id: roomId, event_name: eventName }),
-  });
-  console.log('[API] analyzeChat result received:', { 
-    success: !!data.analysis, 
-    keys: data.analysis ? Object.keys(data.analysis) : 'NONE' 
   });
   return data.analysis;
 }
@@ -542,7 +558,6 @@ export async function fetchAiHistory(roomId: string): Promise<AiMessage[]> {
     const data = await apiFetch<any>(`/chat/ask/history/${roomId}`, undefined);
     return Array.isArray(data.history) ? data.history : [];
   } catch (e) {
-    console.warn('[eventPredictionService] fetchAiHistory failed:', e);
     return [];
   }
 }
@@ -554,7 +569,6 @@ export async function clearAiHistory(roomId: string): Promise<boolean> {
     });
     return data.success === true;
   } catch (e) {
-    console.warn('[eventPredictionService] clearAiHistory failed:', e);
     return false;
   }
 }

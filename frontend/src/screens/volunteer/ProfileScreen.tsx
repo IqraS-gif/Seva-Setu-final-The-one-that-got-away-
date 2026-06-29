@@ -11,11 +11,13 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { AppHeader, UserAvatar, PrimaryButton } from '../../components';
+import { AppHeader, UserAvatar, DynamicText } from '../../components';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { useAuthStore } from '../../services/store/useAuthStore';
 import { useEventStore } from '../../services/store/useEventStore';
 import { useNavigation } from '@react-navigation/native';
+import { useLanguage } from '../../context/LanguageContext';
+import { LanguageToggle } from '../../components/common/LanguageToggle';
 
 const ALL_SKILLS = [
   { id: 'first_aid',        label: 'First Aid',      icon: '🩺' },
@@ -32,6 +34,7 @@ const ALL_SKILLS = [
 
 export const VolunteerProfileScreen = () => {
   const navigation = useNavigation<any>();
+  const { t } = useLanguage();
   const { user, logout } = useAuthStore();
   const { 
     volunteerProfile, 
@@ -59,7 +62,7 @@ export const VolunteerProfileScreen = () => {
     ? (user?.name || "Volunteer") 
     : volunteerProfile.name;
 
-  const displayNgo = user?.ngo_name || "Helping Hands Foundation";
+  const displayNgo = user?.ngo_name || t('volunteer.profile.unassignedNgo');
 
   useEffect(() => {
     if (volunteerProfile) {
@@ -92,19 +95,25 @@ export const VolunteerProfileScreen = () => {
     // Immediately re-run live matching with updated profile
     await loadLiveMatches(volunteerId);
     setIsDirty(false);
-    Alert.alert('Saved!', 'Your profile has been updated. Your pending matches have been refreshed.');
+    Alert.alert(t('common.success'), t('volunteer.profile.saveSuccess'));
   };
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Volunteer Profile" rightIcon="settings" onRightPress={() => {}} />
+      <AppHeader title={t('volunteer.profile.title')} rightIcon="settings" onRightPress={() => {}} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* Header */}
         <View style={styles.headerArea}>
           <UserAvatar name={displayName} size={80} />
-          <Text style={[typography.headingMedium, styles.name]}>{displayName}</Text>
-          <Text style={typography.captionText}>Volunteer • Tier 2 Badge</Text>
+          <DynamicText 
+            style={[typography.headingMedium, styles.name]} 
+            text={displayName} 
+            collection="users"
+            docId={user?.id || volunteerId}
+            field="name"
+          />
+          <Text style={typography.captionText}>{t('volunteer.profile.volunteerTier')}</Text>
           {/* Availability toggle */}
           <TouchableOpacity
             style={[styles.availToggle, isAvailable ? styles.availOn : styles.availOff]}
@@ -112,29 +121,29 @@ export const VolunteerProfileScreen = () => {
           >
             <View style={[styles.availDot, isAvailable ? styles.availDotOn : styles.availDotOff]} />
             <Text style={[styles.availText, isAvailable ? styles.availTextOn : styles.availTextOff]}>
-              {isAvailable ? 'Available for Events' : 'Unavailable'}
+              {isAvailable ? t('volunteer.profile.availableForEvents') : t('volunteer.profile.unavailable')}
             </Text>
           </TouchableOpacity>
         </View>
 
         {/* NGO Info */}
         <View style={[globalStyles.card, styles.card]}>
-          <Text style={typography.headingSmall}>Assigned NGO</Text>
-          <Text style={[typography.bodyText, styles.detailItem]}>{displayNgo}</Text>
-          <Text style={[typography.bodyText, styles.detailItem]}>Supervisor: Mr. Gupta</Text>
+          <Text style={typography.headingSmall}>{t('volunteer.profile.assignedNgo')}</Text>
+          <DynamicText style={[typography.bodyText, styles.detailItem]} text={displayNgo} />
+          <Text style={[typography.bodyText, styles.detailItem]}>{t('volunteer.profile.supervisor')}: Mr. Gupta</Text>
         </View>
 
         {/* Area field */}
         <View style={[globalStyles.card, styles.card]}>
-          <Text style={typography.headingSmall}>Your Area</Text>
-          <Text style={styles.fieldHint}>Used to match you with nearby events</Text>
+          <Text style={typography.headingSmall}>{t('volunteer.profile.yourArea')}</Text>
+          <Text style={styles.fieldHint}>{t('volunteer.profile.areaHint')}</Text>
           <View style={styles.inputWrapper}>
             <Feather name="map-pin" size={16} color={colors.textSecondary} style={styles.inputIcon} />
             <TextInput
               style={styles.input}
               value={area}
               onChangeText={(v) => { setArea(v); setIsDirty(true); }}
-              placeholder="e.g. Nashik, Maharashtra"
+              placeholder={t('volunteer.profile.areaPlaceholder')}
               placeholderTextColor={colors.textSecondary}
             />
           </View>
@@ -142,8 +151,8 @@ export const VolunteerProfileScreen = () => {
 
         {/* Skills section */}
         <View style={[globalStyles.card, styles.card]}>
-          <Text style={typography.headingSmall}>Your Skills</Text>
-          <Text style={styles.fieldHint}>Select all skills you have — the engine uses these to match events</Text>
+          <Text style={typography.headingSmall}>{t('volunteer.profile.yourSkills')}</Text>
+          <Text style={styles.fieldHint}>{t('volunteer.profile.skillsHint')}</Text>
           <View style={styles.skillsGrid}>
             {ALL_SKILLS.map((skill) => {
               const isSelected = selectedSkills.includes(skill.id);
@@ -156,12 +165,12 @@ export const VolunteerProfileScreen = () => {
                   {isSelected ? (
                     <LinearGradient colors={['#2E7D32', '#1B5E20']} style={styles.skillGradient}>
                       <Text style={styles.skillEmojiSelected}>{skill.icon}</Text>
-                      <Text style={styles.skillTextSelected}>{skill.label}</Text>
+                      <Text style={styles.skillTextSelected}>{t(`skills.${skill.id}`)}</Text>
                     </LinearGradient>
                   ) : (
                     <>
                       <Text style={styles.skillEmoji}>{skill.icon}</Text>
-                      <Text style={styles.skillText}>{skill.label}</Text>
+                      <Text style={styles.skillText}>{t(`skills.${skill.id}`)}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -171,7 +180,7 @@ export const VolunteerProfileScreen = () => {
           {selectedSkills.length > 0 && (
             <View style={styles.selectedCount}>
               <Feather name="check-circle" size={13} color={colors.success} />
-              <Text style={styles.selectedCountText}>{selectedSkills.length} skill{selectedSkills.length > 1 ? 's' : ''} selected</Text>
+              <Text style={styles.selectedCountText}>{selectedSkills.length} {t('volunteer.profile.skillsSelected')}</Text>
             </View>
           )}
         </View>
@@ -179,10 +188,10 @@ export const VolunteerProfileScreen = () => {
         {/* Fatigue meter */}
         {volunteerProfile && (
           <View style={[globalStyles.card, styles.card]}>
-            <Text style={typography.headingSmall}>Workload Balance</Text>
-            <Text style={styles.fieldHint}>Prevents back-to-back over-assignment</Text>
+            <Text style={typography.headingSmall}>{t('volunteer.profile.workloadBalance')}</Text>
+            <Text style={styles.fieldHint}>{t('volunteer.profile.workloadHint')}</Text>
             <View style={styles.fatigueRow}>
-              <Text style={styles.fatigueLabel}>Fatigue Score</Text>
+              <Text style={styles.fatigueLabel}>{t('volunteer.profile.fatigueScore')}</Text>
               <Text style={[styles.fatigueValue, {
                 color: (volunteerProfile.fatigue_score ?? 0) >= 4 ? colors.error
                   : (volunteerProfile.fatigue_score ?? 0) >= 2 ? colors.warning
@@ -201,36 +210,103 @@ export const VolunteerProfileScreen = () => {
           </View>
         )}
 
+        {/* Recognition Link */}
+        <TouchableOpacity 
+          style={styles.recognitionLinkCard}
+          onPress={() => navigation.navigate('Certificates')}
+          activeOpacity={0.8}
+        >
+          <View style={styles.calendarLinkContent}>
+            <View style={styles.recognitionIconBg}>
+              <Feather name="award" size={20} color={colors.primarySaffron} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.calendarLinkTitle}>{t('volunteer.recognition.title')}</Text>
+              <Text style={styles.calendarLinkSub}>{t('volunteer.recognition.viewAll')}</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#7C8B9E" />
+          </View>
+        </TouchableOpacity>
+
+        {/* Verification Tools */}
+        <TouchableOpacity 
+          style={styles.verificationCard}
+          onPress={() => navigation.navigate('VerifyCertificate')}
+          activeOpacity={0.8}
+        >
+          <View style={styles.calendarLinkContent}>
+            <View style={styles.verificationIconBg}>
+              <Feather name="maximize" size={20} color={colors.primaryGreen} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.calendarLinkTitle}>{t('volunteer.recognition.verifyCertificate')}</Text>
+              <Text style={styles.calendarLinkSub}>{t('volunteer.recognition.verifySubtitle')}</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#7C8B9E" />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.passportVerificationCard}
+          onPress={() => navigation.navigate('VerifyPassport')}
+          activeOpacity={0.8}
+        >
+          <View style={styles.calendarLinkContent}>
+            <View style={styles.passportIconBg}>
+              <Feather name="user-check" size={20} color={colors.accentBlue} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.calendarLinkTitle}>{t('volunteer.home.verifyPassport')}</Text>
+              <Text style={styles.calendarLinkSub}>{t('citizen.impactPassport.scanToVerify')}</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="#7C8B9E" />
+          </View>
+        </TouchableOpacity>
+
         {/* Calendar Link */}
         <TouchableOpacity 
-          style={[globalStyles.card, styles.calendarLinkCard]}
+          style={styles.calendarLinkCard}
           onPress={() => navigation.navigate('Availability')}
+          activeOpacity={0.8}
         >
           <View style={styles.calendarLinkContent}>
             <View style={styles.calendarIconBg}>
-              <Feather name="calendar" size={20} color={colors.primaryGreen} />
+              <Feather name="calendar" size={20} color="#7C3AED" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.calendarLinkTitle}>Availability Calendar</Text>
-              <Text style={styles.calendarLinkSub}>Mark dates you are free for volunteering</Text>
+              <Text style={styles.calendarLinkTitle}>{t('volunteer.profile.availabilityCalendar')}</Text>
+              <Text style={styles.calendarLinkSub}>{t('volunteer.profile.calendarSub')}</Text>
             </View>
-            <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+            <Feather name="chevron-right" size={20} color="#7C8B9E" />
           </View>
         </TouchableOpacity>
 
         {/* Save button */}
+        {/* Language Settings */}
+        <View style={[globalStyles.card, styles.card]}>
+          <Text style={typography.headingSmall}>{t('volunteer.profile.languageSettings')}</Text>
+          <Text style={[styles.fieldHint, { marginBottom: spacing.sm }]}>{t('volunteer.profile.switchLanguage')}</Text>
+          <LanguageToggle />
+        </View>
+
         {isDirty && (
           <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={loadingAction}>
             <LinearGradient colors={['#2E7D32', '#1B5E20']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveGradient}>
               {loadingAction
                 ? <ActivityIndicator color="#fff" />
-                : <><Feather name="save" size={18} color="#fff" /><Text style={styles.saveBtnText}>Save Profile</Text></>
+                : <><Feather name="save" size={18} color="#fff" /><Text style={styles.saveBtnText}>{t('volunteer.profile.saveProfile')}</Text></>
               }
             </LinearGradient>
           </TouchableOpacity>
         )}
 
-        <PrimaryButton title="Log Out" onPress={logout} style={styles.logoutBtn} />
+        <TouchableOpacity
+          onPress={logout}
+          activeOpacity={0.8}
+          style={styles.logoutBtnCustom}
+        >
+          <Text style={styles.logoutBtnText}>{t('auth.logoutButton')}</Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -274,7 +350,26 @@ const styles = StyleSheet.create({
   saveBtn: { marginHorizontal: spacing.md, borderRadius: 14, overflow: 'hidden', marginBottom: spacing.md },
   saveGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 15 },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' as const },
-  logoutBtn: { marginHorizontal: spacing.md, marginTop: spacing.sm, backgroundColor: colors.error },
+  logoutBtnCustom: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.xxl,
+    backgroundColor: '#FF8C42', // Orange color (colors.primarySaffron)
+    borderRadius: 14,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF8C42',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  logoutBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   debugCard: { marginHorizontal: spacing.md, marginBottom: spacing.md, borderStyle: 'dashed', borderWidth: 2, borderColor: colors.primarySaffron + '40', backgroundColor: colors.primarySaffron + '08' },
   debugGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm },
   accBtn: { flexBasis: '48%', flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, borderRadius: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E0E0E0' },
@@ -286,9 +381,10 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md, 
     marginBottom: spacing.md, 
     padding: spacing.md,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.primaryGreen + '30',
-    backgroundColor: colors.primaryGreen + '05',
+    borderColor: '#D7B7F6', // Brighter purple border
+    backgroundColor: '#F3E8FD', // Brighter purple background
   },
   calendarLinkContent: {
     flexDirection: 'row',
@@ -299,18 +395,89 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.primaryGreen + '15',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   calendarLinkTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: '#1A237E', // Navy Blue
   },
   calendarLinkSub: {
     fontSize: 12,
-    color: colors.textSecondary,
+    color: '#6B7280',
     marginTop: 2,
+  },
+  recognitionLinkCard: { 
+    marginHorizontal: spacing.md, 
+    marginBottom: spacing.md, 
+    padding: spacing.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FFD4B2', // Brighter orange border
+    backgroundColor: '#FFF0E6', // Brighter orange background
+  },
+  recognitionIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  verificationCard: { 
+    marginHorizontal: spacing.md, 
+    marginBottom: spacing.md, 
+    padding: spacing.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#B7E1CD', // Brighter green border
+    backgroundColor: '#E6F4EA', // Brighter green background
+  },
+  verificationIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  passportVerificationCard: { 
+    marginHorizontal: spacing.md, 
+    marginBottom: spacing.md, 
+    padding: spacing.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D2E3FC', // Brighter blue border
+    backgroundColor: '#E8F0FE', // Brighter blue background
+  },
+  passportIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
 });

@@ -7,67 +7,99 @@ import { useNgoStore } from '../../services/store/useNgoStore';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { useLanguage } from '../../context/LanguageContext';
+import { useChatStore } from '../../services/store/useChatStore';
+import { useAuthStore } from '../../services/store/useAuthStore';
+import { useEventStore } from '../../services/store/useEventStore';
+
 export const VolunteersScreen = () => {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
-  const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PENDING'>('ACTIVE');
+  const [activeTab, setActiveTab] = useState<'CHATS' | 'PENDING'>('CHATS');
   const { pendingRequests, loadPendingRequests, updateRequest, loading } = useNgoStore();
+  const { rooms, loadRooms, loadingRooms, markRoomRead } = useChatStore();
+  const { user } = useAuthStore();
+  const { volunteerId: currentVolunteerId } = useEventStore();
 
-  const MOCK_SUPERVISOR_NGO_ID = 'ngo_helping_hands'; // In a real app, get from authStore
-  const MOCK_SUPERVISOR_ID = 'sup_deepak_1';
+  const MOCK_SUPERVISOR_NGO_ID = user?.ngo_id || 'ngo_helping_hands';
 
-  const activeVolunteers = [
-    { id: 'vol_logistics_1', name: 'Anita Sharma', status: 'Active', zone: 'Sector 5', skills: ['logistics', 'first_aid'] },
-    { id: 'vol_medical_1', name: 'Rahul Verma', status: 'On Break', zone: 'Delhi Cantt', skills: ['medical'] },
-    { id: 'vol_teaching_1', name: 'Sneha Patel', status: 'Dispatched', zone: 'Connaught Place', skills: ['teaching'] },
-  ];
+  // Use the real authenticated user's ID — no hardcoding
+  const currentUserId = user?.id || '';
 
   useEffect(() => {
     if (activeTab === 'PENDING') {
       loadPendingRequests(MOCK_SUPERVISOR_NGO_ID);
+    } else {
+      if (currentUserId) loadRooms(currentUserId);
     }
-  }, [activeTab]);
+  }, [activeTab, currentUserId]);
 
   const handleReview = async (requestId: string, status: 'APPROVED' | 'REJECTED') => {
     try {
-      await updateRequest(requestId, status, MOCK_SUPERVISOR_ID);
-      Alert.alert('Success', `Request has been ${status.toLowerCase()} successfully.`);
+      await updateRequest(requestId, status, currentUserId);
+      Alert.alert(t('common.success'), t(status === 'APPROVED' ? 'supervisor.volunteers.approveSuccess' : 'supervisor.volunteers.rejectSuccess'));
     } catch (err) {
-      Alert.alert('Error', 'Failed to process request.');
+      Alert.alert(t('common.error'), t('supervisor.volunteers.errorProcessing'));
     }
   };
 
-  const renderActiveVolunteers = () => (
+  const getStatusLabel = (status: string) => {
+    const s = status.toLowerCase();
+    if (s === 'active') return t('supervisor.volunteers.activeStatus');
+    if (s === 'on break') return t('supervisor.volunteers.onBreakStatus');
+    if (s === 'dispatched') return t('supervisor.volunteers.dispatchedStatus');
+    return status;
+  };
+
+  const renderChats = () => (
     <ScrollView contentContainerStyle={styles.scrollContent}>
-      {activeVolunteers.map(v => (
-        <View key={v.id} style={[globalStyles.card, styles.volunteerCard]}>
-          <UserAvatar name={v.name} size={50} style={styles.avatar} />
-          <View style={styles.info}>
-            <Text style={styles.volunteerName}>{v.name}</Text>
-            <Text style={[styles.statusText, { color: v.status === 'Active' ? colors.success : colors.warning }]}>
-              {v.status} • {v.zone}
-            </Text>
-            <View style={styles.skillsRow}>
-              {v.skills.map(s => (
-                <View key={s} style={styles.skillBadge}>
-                  <Text style={styles.skillBadgeText}>{s.replace('_', ' ')}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-          <IconButton 
-            iconName="message-square" 
-            onPress={() => navigation.navigate('Chat', {
-              volunteer_id: v.id,
-              supervisor_id: MOCK_SUPERVISOR_ID,
-              recipient_name: v.name,
-              volunteer_name: v.name,
-              supervisor_name: 'Deepak Chawla (Supervisor)',
-              event_name: 'General Discussion'
-            })} 
-            iconColor={colors.accentBlue} 
-          />
+      {loadingRooms ? (
+        <ActivityIndicator size="large" color={colors.primaryGreen} style={{ marginTop: 50 }} />
+      ) : rooms.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Feather name="message-square" size={60} color={colors.textSecondary + '40'} />
+          <Text style={styles.emptyText}>{t('chat.noConversations')}</Text>
         </View>
-      ))}
+      ) : (
+        rooms.map(room => {
+          const otherName = room.volunteer_name && room.volunteer_name !== 'Me' ? room.volunteer_name : 'Volunteer';
+          const hasUnread = (room.unread_count || 0) > 0;
+          
+          return (
+            <TouchableOpacity 
+              key={room.id} 
+              style={[globalStyles.card, styles.volunteerCard, hasUnread && { backgroundColor: colors.primaryGreen + '05' }]}
+              onPress={() => {
+                markRoomRead(room.id, currentUserId);
+                navigation.navigate('Chat', {
+                  volunteer_id: room.volunteer_id,
+                  supervisor_id: room.supervisor_id,
+                  event_id: room.event_id,
+                  recipient_name: otherName,
+                  event_name: room.event_id ? (room.event_name || 'Ongoing Mission') : 'General Inquiry'
+                });
+              }}
+            >
+              <UserAvatar name={otherName} size={50} style={styles.avatar} />
+              <View style={styles.info}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={[styles.volunteerName, hasUnread && { fontWeight: '800' }]}>{otherName}</Text>
+                  {hasUnread && <View style={styles.unreadDot} />}
+                </View>
+                <Text style={[styles.lastMessageText, hasUnread && { color: colors.primaryGreen, fontWeight: '700' }]} numberOfLines={1}>
+                  {room.last_message || t('chat.noMessages')}
+                </Text>
+                {room.event_id && (
+                  <View style={styles.eventContextBadge}>
+                    <Text style={styles.eventContextText}>{t('chat.missionContextActive')}</Text>
+                  </View>
+                )}
+              </View>
+              <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          );
+        })
+      )}
     </ScrollView>
   );
 
@@ -78,7 +110,7 @@ export const VolunteersScreen = () => {
       ) : pendingRequests.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Feather name="user-check" size={60} color={colors.textSecondary + '40'} />
-          <Text style={styles.emptyText}>No pending volunteer requests for your NGO.</Text>
+          <Text style={styles.emptyText}>{t('supervisor.volunteers.noPendingRequests')}</Text>
         </View>
       ) : (
         pendingRequests.map(req => (
@@ -95,14 +127,16 @@ export const VolunteersScreen = () => {
             </View>
             
             <View style={styles.motivationBox}>
-              <Text style={styles.motivationLabel}>Motivation:</Text>
+              <Text style={styles.motivationLabel}>{t('supervisor.volunteers.motivation')}</Text>
               <Text style={styles.motivationText} numberOfLines={3}>"{req.motivation}"</Text>
             </View>
 
             <View style={styles.skillsRow}>
               {req.skills?.map(s => (
                 <View key={s} style={[styles.skillBadge, { backgroundColor: colors.primaryGreen + '15' }]}>
-                  <Text style={[styles.skillBadgeText, { color: colors.primaryGreen }]}>{s.replace('_', ' ')}</Text>
+                  <Text style={[styles.skillBadgeText, { color: colors.primaryGreen }]}>
+                    {t(`skills.${s}`) !== `skills.${s}` ? t(`skills.${s}`) : s.replace('_', ' ')}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -113,7 +147,7 @@ export const VolunteersScreen = () => {
                 onPress={() => handleReview(req.id, 'REJECTED')}
               >
                 <Feather name="x" size={16} color={colors.error} />
-                <Text style={styles.rejectBtnText}>Reject</Text>
+                <Text style={styles.rejectBtnText}>{t('supervisor.volunteers.reject')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
@@ -127,7 +161,7 @@ export const VolunteersScreen = () => {
                   style={styles.approveGradient}
                 >
                   <Feather name="check" size={16} color="#FFF" />
-                  <Text style={styles.approveBtnText}>Approve</Text>
+                  <Text style={styles.approveBtnText}>{t('supervisor.volunteers.approve')}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -139,16 +173,16 @@ export const VolunteersScreen = () => {
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Volunteer Network" rightIcon="settings" />
+      <AppHeader title={t('supervisor.volunteers.title')} rightIcon="settings" />
       
       {/* Tabs */}
       <View style={styles.tabBar}>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'ACTIVE' && styles.activeTab]}
-          onPress={() => setActiveTab('ACTIVE')}
+          style={[styles.tab, activeTab === 'CHATS' && styles.activeTab]}
+          onPress={() => setActiveTab('CHATS')}
         >
-          <Text style={[styles.tabText, activeTab === 'ACTIVE' && styles.activeTabText]}>Active Members</Text>
-          {activeTab === 'ACTIVE' && <View style={styles.activeIndicator} />}
+          <Text style={[styles.tabText, activeTab === 'CHATS' && styles.activeTabText]}>{t('chat.title')}</Text>
+          {activeTab === 'CHATS' && <View style={styles.activeIndicator} />}
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -156,7 +190,7 @@ export const VolunteersScreen = () => {
           onPress={() => setActiveTab('PENDING')}
         >
           <View style={styles.pendingTabLabel}>
-            <Text style={[styles.tabText, activeTab === 'PENDING' && styles.activeTabText]}>Requests</Text>
+            <Text style={[styles.tabText, activeTab === 'PENDING' && styles.activeTabText]}>{t('supervisor.volunteers.requests')}</Text>
             {pendingRequests.length > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{pendingRequests.length}</Text>
@@ -167,7 +201,7 @@ export const VolunteersScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {activeTab === 'ACTIVE' ? renderActiveVolunteers() : renderPendingRequests()}
+      {activeTab === 'CHATS' ? renderChats() : renderPendingRequests()}
     </View>
   );
 };
@@ -248,6 +282,30 @@ const styles = StyleSheet.create({
   volunteerName: {
     ...typography.headingSmall,
     color: colors.textPrimary,
+  },
+  lastMessageText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primaryGreen,
+  },
+  eventContextBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primaryGreen + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 6,
+  },
+  eventContextText: {
+    fontSize: 10,
+    color: colors.primaryGreen,
+    fontWeight: '700',
   },
   statusText: {
     fontSize: 12,
