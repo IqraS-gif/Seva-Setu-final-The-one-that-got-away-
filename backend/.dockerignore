@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.git
+.gitignore
+.vscode/
+.idea/
+error.txt
+voice_debug.log
+translation_state.json
+uploads/
+scratch/
+scripts/
+Dockerfile.bot
+README.md
