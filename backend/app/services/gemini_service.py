@@ -1,18 +1,216 @@
-import google.generativeai as genai  # type: ignore
+from groq import Groq # type: ignore
+from google import genai  # type: ignore
+from google.genai import types # type: ignore
 import os
 import json
 import base64
+import time
+import re
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY not found in environment variables")
+# --- API Keys Rotation Logic ---
+def get_all_gemini_keys() -> List[str]:
+    keys = []
+    # Check comma separated
+    raw = os.getenv("GEMINI_API_KEYS", "")
+    if raw:
+        keys.extend([k.strip() for k in re.split(r'[;,]', raw) if k.strip()])
+    # Check primary
+    primary = os.getenv("GEMINI_API_KEY", "")
+    if primary and primary not in keys:
+        keys.append(primary.strip())
+    # Check numbered
+    pattern = re.compile(r"^GEMINI_API_KEY_(\d+)$")
+    sorted_envs = sorted(
+        [k for k in os.environ.keys() if pattern.match(k)],
+        key=lambda x: int(pattern.match(x).group(1))
+    )
+    for k in sorted_envs:
+        val = os.getenv(k, "").strip()
+        if val and val not in keys:
+            keys.append(val)
+    return keys
 
-genai.configure(api_key=GEMINI_API_KEY)
-# Initialize Gemini with 2.5-Flash for strategic missions
-model = genai.GenerativeModel('gemini-2.5-flash')
+api_keys = get_all_gemini_keys()
+
+def get_keys(env_var: str) -> List[str]:
+    raw = os.getenv(env_var, "")
+    # Support both comma and semicolon separators
+    return [k.strip() for k in re.split(r'[;,]', raw) if k.strip()]
+
+groq_keys = get_keys("GROQ_API_KEYS") or get_keys("GROQ_API_KEY")
+
+current_key_index = 0
+current_groq_index = 0
+
+if not api_keys and not groq_keys:
+    raise ValueError("No GEMINI or GROQ API keys found in environment variables")
+
+# Initial configuration with the first Gemini key if available
+if api_keys:
+    # Use the new Client object
+    client = genai.Client(api_key=api_keys[0])
+    # Initialize model name - gemini-2.5-flash
+    model_name = 'gemini-2.5-flash' 
+else:
+    client = None
+    model_name = 'gemini-2.5-flash'
+
+def call_groq_fallback(prompt_data: Any) -> Any:
+    """
+    Fallback mechanism to use Groq if Gemini fails.
+    Handles both text and multimodal (image) inputs.
+    """
+    global current_groq_index
+    if not groq_keys:
+        raise Exception("No Groq keys available for fallback.")
+    
+    key = groq_keys[current_groq_index % len(groq_keys)]
+    client = Groq(api_key=key)
+    
+    # Process inputs: prompt_data could be a string or a list [prompt, file_part]
+    prompt_text = ""
+    image_data = None
+    mime_type = "image/jpeg"
+    
+    if isinstance(prompt_data, list):
+        for part in prompt_data:
+            if isinstance(part, str):
+                prompt_text = part
+            elif hasattr(part, "data") and hasattr(part, "mime_type"):
+                # Handle Google types.Part objects
+                image_data = base64.b64encode(part.data).decode('utf-8')
+                mime_type = part.mime_type
+            elif isinstance(part, dict) and "data" in part:
+                image_data = part["data"]
+                mime_type = part.get("mime_type", "image/jpeg")
+    else:
+        prompt_text = str(prompt_data)
+        
+    try:
+        print(f"🔀 [Fallback] Attempting Groq (Key {current_groq_index})...")
+        messages = []
+        if image_data:
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt_text},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{image_data}"}
+                    }
+                ]
+            })
+            # Vision fallback is currently unavailable on Groq (Llama 3.2 Vision models are decommissioned).
+            # Falling back to the best available text model.
+            model_name = "llama-3.3-70b-versatile"
+        else:
+            messages.append({"role": "user", "content": prompt_text})
+            model_name = "llama-3.3-70b-versatile"
+            
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            temperature=0.1
+        )
+        
+        # Mocking the Gemini response object structure enough for .text
+        class MockResponse:
+            def __init__(self, text):
+                self.text = text
+        
+        return MockResponse(completion.choices[0].message.content)
+    except Exception as e:
+        print(f"!!! [Groq Fallback ERROR] {e}")
+        current_groq_index += 1
+        raise e
+
+def retry_with_backoff(func, *args, max_retries=12, initial_delay=2, **kwargs):
+    """
+    Executes a function with exponential backoff, Gemini key rotation, 
+    and eventual fallback to Groq.
+    """
+    global current_key_index
+    retries = 0
+    delay = initial_delay
+    
+    # Try all Gemini keys first
+    gemini_key_count = len(api_keys) if api_keys else 0
+    gemini_attempts = gemini_key_count * 2 # Allow 2 tries per key
+    
+    while retries < max_retries:
+        try:
+            # If we've exhausted Gemini or Gemini isn't configured, use Groq
+            if (gemini_key_count > 0 and retries >= gemini_attempts) or not api_keys:
+                return call_groq_fallback(args[0] if args else kwargs.get('contents'))
+            
+            if api_keys:
+                 # Create a new client with the current rotated key
+                 rotated_client = genai.Client(api_key=api_keys[current_key_index % len(api_keys)])
+            
+            # Using the new Client.models.generate_content
+            contents = args[0] if args else kwargs.get('contents') or kwargs.get('content')
+            
+            # Use the global model_name or override from kwargs if present
+            target_model = kwargs.get('model', model_name)
+            
+            return rotated_client.models.generate_content(
+                model=target_model,
+                contents=contents
+            )
+                
+        except Exception as e:
+            err_str = str(e).lower()
+            
+            # Common failure modes: 403 (Permission), 429 (Rate Limit), 503 (Overloaded)
+            failed_but_rotatable = any(code in err_str for code in ["403", "401", "429", "resource exhausted", "denied", "permission"])
+            
+            if failed_but_rotatable:
+                if len(api_keys) > 1:
+                    current_key_index = (current_key_index + 1) % len(api_keys)
+                    print(f"🔄 [Gemini Rotator] Key hit an issue. Rotating to Key Index {current_key_index}...")
+                    retries += 1
+                    continue 
+                else:
+                    print(f"!!! [Gemini API] Issue hit with no more keys. Falling back...")
+                    retries = max_retries # Force fallback
+                    continue
+            elif "503" in err_str or "overloaded" in err_str or "500" in err_str:
+                print(f"!!! [Gemini API] Server issue. Retrying in {delay}s...")
+                time.sleep(delay)
+                retries += 1
+                delay *= 2
+            else:
+                # For unknown errors, try rotating once just in case
+                if len(api_keys) > 1:
+                    current_key_index = (current_key_index + 1) % len(api_keys)
+                    retries += 1
+                    continue
+                raise e
+    
+    # Absolute final fallback if it somehow escapes the loop
+    return call_groq_fallback(args[0] if args else kwargs.get('contents'))
+
+
+# ─── Bilingual Instruction ────────────────────────────────────────────────────
+# Injected into all prompts so text fields return {"en": "...", "hi": "..."}
+BILINGUAL_INSTRUCTION = """
+BILINGUAL OUTPUT INSTRUCTION (MANDATORY):
+For EVERY text field in the JSON response (string values only — NOT numbers or booleans),
+you MUST return a bilingual object instead of a plain string.
+Format: {"en": "English text here", "hi": "हिंदी अनुवाद यहाँ"}
+
+For arrays of text strings, each ELEMENT must be a bilingual object:
+[{"en": "First point", "hi": "पहला बिंदु"}, ...]
+
+Exception: citizen_name, phone, gps_coordinates, precise_location stay as plain strings.
+Exception: All numeric fields (severity_score, population_affected, etc.) stay as numbers.
+
+IMPORTANT: The Hindi must be accurate, natural, and use proper civic/NGO terminology.
+"""
 
 def process_document_and_extract(file_bytes: bytes, mime_type: str) -> dict:
     """
@@ -22,102 +220,98 @@ def process_document_and_extract(file_bytes: bytes, mime_type: str) -> dict:
     prompt = """
 You are an intelligent social infrastructure surveyor. Analyze the provided document (which could be a handwritten form, a typed report, or an image of an issue) and extract comprehensive structured data.
 
-Extract the following fields. 
-
 CRITICAL INSTRUCTION: Do NOT leave text fields blank or null. If a field is not explicitly mentioned in the document, use your intelligence and the surrounding context to infer, generate, or provide a highly probable and helpful value.
 
-NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'demographic_tally', do NOT guess. Only provide a number if there is direct evidence (e.g., tally marks, "50 people", "10 families"). If no direct evidence is found, return 0 or null.
+NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'demographic_tally', do NOT guess. Only provide a number if there is direct evidence. If no direct evidence is found, return 0 or null.
 
-Metadata:
-- citizen_name (string): Name of the reporter or citizen
-- phone (string): Phone number
-- precise_location (string): Where the problem is
-- gps_coordinates (string): Any mentioned GPS coords
-- demographic_tally (number): Household size or tally marks. Return 0 if not found.
+""" + BILINGUAL_INSTRUCTION + """
 
-Problem Details:
-- executive_summary (string): A concise 1-sentence summary of the entire problem.
-- primary_category (string): Classify into ONE of: Water, Sanitation, Infrastructure, Health, Education, Safety, or Other.
-- sub_category (string): Specific issue (e.g., Piped Water Supply, Roads).
-- problem_status (string): Active/Persistent, Resolved, or Recurring
-- duration_of_problem (string): E.g., '3 weeks', '2 months'. If not mentioned, estimate based on context.
-- urgency_level (string): Immediate, Critical, Moderate, Low
-- service_status (string): Active or Inactive
+Metadata (plain strings — do NOT wrap in bilingual objects):
+- citizen_name (string)
+- phone (string)
+- precise_location (string)
+- gps_coordinates (string)
+- demographic_tally (number)
 
-Impact & Severity:
-- severity_score (number): Calculate a score from 1 to 10 based on the text context (10 being most severe/dangerous)
-- severity_reason (string): Provide a 2-3 sentence logical justification for why this specific score was given.
-- population_affected (number): The number of people affected. DO NOT GUESS. Return 0 or null if not explicitly mentioned or clearly indicated.
-- vulnerable_group (string): Identify the most affected group: women, children, elderly, or disabled.
-- vulnerability_flag (string): High, Medium, Low (based on demographics mentioned like children/elderly)
-- secondary_impact (string): Follow-on effects
+All other text fields MUST be bilingual {"en": ..., "hi": ...} objects:
+- executive_summary (2-3 sentences, be extremely specific about the problem, location, and impact. Avoid generic filler like "The citizen reported...").
+- primary_category, sub_category, problem_status,
+  duration_of_problem, urgency_level, service_status,
+  severity_reason, vulnerable_group, vulnerability_flag, secondary_impact,
+  govt_scheme_applicable, ai_recommended_actions, sentiment, key_quote,
+  description, auto_category, previous_complaints_insights
 
-Action & Follow-up (AI Predicted):
-- expected_resolution_timeline (list of strings): AI powered prediction of phases (e.g., ["Phase 1: Verification (3 days)", "Phase 2: Approval (7 days)", "Phase 3: Work (14 days)"]).
-- detailed_resolution_steps (list of strings): A more granular, low-level list of 5-7 specific technical or administrative steps required for resolution.
-- govt_scheme_applicable (string): Identify any relevant Indian Government scheme (e.g., Jal Jeevan Mission, PMGSY).
-- ai_recommended_actions (string): 2-3 specific steps that should be taken immediately. USE BULLET POINTS.
+Array fields where EACH element is a bilingual object:
+- expected_resolution_timeline, detailed_resolution_steps, key_complaints
 
-Qualitative:
-- key_complaints (array of strings): 3-5 keywords summarizing complaints
-- sentiment (string): Hopeful, Angry, Desperate, Frustrated, Neutral
-- key_quote (string): A direct quote if applicable
-- description (string): Detailed summary of what was VISUALLY shown in the evidence. Describe setting, people, actions, and specific issues in 3 clear bullet points. Avoid mentioning the fact that it is a photo/file. Focus only on the content.
+Numeric fields (stay as numbers): severity_score, population_affected
 
-Return ONLY valid JSON in this exact structure, nothing else:
+Return ONLY valid JSON:
 {
   "citizen_name": "",
   "phone": "",
   "precise_location": "",
   "gps_coordinates": "",
   "demographic_tally": null,
-  "executive_summary": "",
-  "primary_category": "",
-  "sub_category": "",
-  "problem_status": "",
-  "duration_of_problem": "",
-  "urgency_level": "",
-  "service_status": "",
+  "executive_summary": {"en": "", "hi": ""},
+  "primary_category": {"en": "", "hi": ""},
+  "sub_category": {"en": "", "hi": ""},
+  "problem_status": {"en": "", "hi": ""},
+  "duration_of_problem": {"en": "", "hi": ""},
+  "urgency_level": {"en": "", "hi": ""},
+  "service_status": {"en": "", "hi": ""},
   "severity_score": null,
-  "severity_reason": "",
+  "severity_reason": {"en": "", "hi": ""},
   "population_affected": null,
-  "vulnerable_group": "",
-  "vulnerability_flag": "",
-  "secondary_impact": "",
-  "expected_resolution_timeline": [],
-  "detailed_resolution_steps": [],
-  "govt_scheme_applicable": "",
-  "ai_recommended_actions": "",
-  "key_complaints": [],
-  "sentiment": "",
-  "key_quote": "",
-  "description": "",
-  "auto_category": ""
+  "vulnerable_group": {"en": "", "hi": ""},
+  "vulnerability_flag": {"en": "", "hi": ""},
+  "secondary_impact": {"en": "", "hi": ""},
+  "expected_resolution_timeline": [{"en": "", "hi": ""}],
+  "detailed_resolution_steps": [{"en": "", "hi": ""}],
+  "govt_scheme_applicable": {"en": "", "hi": ""},
+  "ai_recommended_actions": {"en": "", "hi": ""},
+  "key_complaints": [{"en": "", "hi": ""}],
+  "previous_complaints_insights": {"en": "", "hi": ""},
+  "sentiment": {"en": "", "hi": ""},
+  "key_quote": {"en": "", "hi": ""},
+  "description": {"en": "", "hi": ""},
+  "auto_category": {"en": "", "hi": ""}
 }
 """
-    file_part = {
-        "mime_type": mime_type,
-        "data": base64.b64encode(file_bytes).decode("utf-8")
-    }
+    file_part = types.Part.from_bytes(
+        data=file_bytes,
+        mime_type=mime_type
+    )
 
     try:
         print("\n--- [Gemini Vision Engine] Processing document extraction ---")
         print(f"[Gemini Vision Engine] MIME Type: {mime_type}, Bytes: {len(file_bytes)}")
         
-        response = model.generate_content([prompt, file_part])
+        response = retry_with_backoff(None, [prompt, file_part])
         text_content = response.text.strip()
         
         print("\n--- [Gemini Vision Engine] SUCCESS. Raw Response preview: ---")
         print(text_content[:300] + "..." if len(text_content) > 300 else text_content)
 
-        if text_content.startswith("```json"):
-            text_content = text_content[7:]
-            text_content = text_content.rsplit("```", 1)[0]
-        elif text_content.startswith("```"):
-            text_content = text_content[3:]
-            text_content = text_content.rsplit("```", 1)[0]
+        # Improved JSON cleaning
+        json_match = re.search(r'\{.*\}', text_content, re.DOTALL)
+        if json_match:
+            text_content = json_match.group(0)
+        else:
+            # Fallback cleaning if regex fails
+            if text_content.startswith("```json"):
+                text_content = text_content[7:]
+                text_content = text_content.rsplit("```", 1)[0]
+            elif text_content.startswith("```"):
+                text_content = text_content[3:]
+                text_content = text_content.rsplit("```", 1)[0]
 
-        data = json.loads(text_content.strip())
+        try:
+            data = json.loads(text_content.strip())
+        except json.JSONDecodeError as je:
+            print(f"[Gemini Vision Engine] JSON Decode Error: {je}")
+            # If it's not JSON, return as description
+            return {"description": text_content.strip(), "error": f"JSON Decode Error: {str(je)}"}
         print(f"[Gemini Vision Engine] Parsed JSON successfully. Category: {data.get('primary_category')}")
         return data
     except Exception as e:
@@ -145,14 +339,16 @@ def analyze_ocr_content(ocr_text: str, mission_name: str, file_name: str) -> dic
 
         YOUR TASK:
         1. Identify the document type (e.g., 'Participant List', 'Legal Notice', 'Memo').
-        2. Summarize the key data (names, dates, core message) in 2-3 specific sentences.
-        3. Evaluate its RELEVANCE specifically to the mission '{mission_name}'.
-        4. If relevant, explain the impact on the mission.
-        5. If irrelevant, provide a professional explanation why.
+        2. Provide a 3-sentence executive summary.
+        3. Extract top 3 core keywords or subject-matter topics.
+        4. Analyze historical relevance to '{mission_name}' based on potential prior incidents.
+        5. Evaluate strategic impact.
 
         Return ONLY valid JSON in this exact structure:
         {{
           "file_summary": "Deep summary of extracted content",
+          "extracted_keywords": ["Topic 1", "Topic 2", "Topic 3"],
+          "historical_insights": "Analysis of relevance to past SevaSetu records",
           "relevance_score": 1-10,
           "relevance_explanation": "Strategic connection to '{mission_name}'",
           "action_recommended": "Specific recommendation for the supervisor"
@@ -160,7 +356,7 @@ def analyze_ocr_content(ocr_text: str, mission_name: str, file_name: str) -> dic
         """
 
         print(f"\n--- [Gemini Reasoning Engine] Processing OCR for '{file_name}' ---")
-        response = model.generate_content(prompt)
+        response = retry_with_backoff(None, prompt)
         text_content = response.text.strip()
         
         if text_content.startswith("```json"):
@@ -173,7 +369,6 @@ def analyze_ocr_content(ocr_text: str, mission_name: str, file_name: str) -> dic
         return json.loads(text_content.strip())
 
     try:
-        from app.services.chat_analysis_service import retry_with_backoff # type: ignore
         return retry_with_backoff(_call_gemini)
     except Exception as e:
         print(f"!!! [Gemini Reasoning ERROR] {file_name}: {e}")
@@ -210,13 +405,14 @@ def analyze_multimodal_attachment(file_bytes: bytes, mime_type: str, mission_nam
         }}
         """
         
-        file_part = {
-            "mime_type": mime_type,
-            "data": base64.b64encode(file_bytes).decode("utf-8")
-        }
+        file_part = types.Part.from_bytes(
+            data=file_bytes,
+            mime_type=mime_type
+        )
 
         print(f"\n--- [Gemini Multimodal Engine] Directly analyzing '{file_name}' ---")
-        response = model.generate_content([prompt, file_part])
+        # Use client directly for direct calls if retry not needed, or update to use retry_with_backoff
+        response = client.models.generate_content(model=model_name, contents=[prompt, file_part])
         text_content = response.text.strip()
         
         if text_content.startswith("```json"):
@@ -230,7 +426,6 @@ def analyze_multimodal_attachment(file_bytes: bytes, mime_type: str, mission_nam
 
     try:
         # Import retry locally if needed or use the one from chat_analysis_service
-        from app.services.chat_analysis_service import retry_with_backoff # type: ignore
         return retry_with_backoff(_call_gemini)
     except Exception as e:
         print(f"!!! [Gemini Multimodal ERROR] {file_name}: {e}")
@@ -252,47 +447,55 @@ You are given a photo of the incident, a text transcript of the worker's voice n
 Voice Transcript: "{audio_transcript}"
 GPS/Location String: "{location}"
 
-Analyze the photo alongside the transcript to generate a highly structured report matching the exact JSON format below.
+Analyze the photo alongside the transcript to generate a highly structured report.
 
 CRITICAL INSTRUCTION: Do NOT leave text fields blank or null. Use your intelligence and the surrounding context (visual evidence + transcript) to infer, generate, or provide a highly probable and helpful value.
 
 NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'severity_score', do NOT guess large numbers. Only provide a number if there is direct evidence in the image or audio. If no direct evidence for population exists, return 0 or null.
 
+""" + BILINGUAL_INSTRUCTION + f"""
+
+Metadata (plain strings — do NOT wrap in bilingual):
+  citizen_name = "Field Worker", precise_location = "{location}"
+
+All other text fields MUST be bilingual objects: {{\"en\": \"...\", \"hi\": \"...\"}}
+Array fields (each element is a bilingual object): expected_resolution_timeline, detailed_resolution_steps, key_complaints
+
 Return ONLY valid JSON:
 {{
   "citizen_name": "Field Worker",
   "precise_location": "{location}",
-  "executive_summary": "Concise 1-sentence summary of the incident",
-  "primary_category": "Classify into ONE of: Water, Sanitation, Infrastructure, Health, Education, Safety, or Other",
-  "sub_category": "",
-  "problem_status": "Active/Persistent",
-  "urgency_level": "Immediate/Critical/Moderate/Low",
-  "duration_of_problem": "Estimate if not mentioned",
-  "severity_score": null, /* 1 to 10 */
-  "severity_reason": "2-3 sentence logical justification for the score",
-  "population_affected": null, /* Only if evidence exists, else 0/null */
-  "vulnerable_group": "women/children/elderly/disabled",
-  "vulnerability_flag": "High/Medium/Low",
-  "expected_resolution_timeline": ["Phase 1: ...", "Phase 2: ..."],
-  "detailed_resolution_steps": ["Week 1 - Week 2: Initial Assessment", "Week 3 - Week 4: Resource Allocation", "Week 5 - Week 8: Implementation", "Week 9 - Week 10: Final Verification"],
-  "govt_scheme_applicable": "Relevant Indian scheme",
-  "ai_recommended_actions": "2-3 specific steps in BULLET POINTS",
-  "key_complaints": ["keyword1", "keyword2"],
-  "sentiment": "Based on voice tone",
-  "description": "Comprehensive summary of visual evidence + spoken words in BULLET POINTS",
-  "auto_category": "Same as primary_category"
+  "executive_summary": {{"en": "", "hi": ""}},
+  "primary_category": {{"en": "", "hi": ""}},
+  "sub_category": {{"en": "", "hi": ""}},
+  "problem_status": {{"en": "", "hi": ""}},
+  "urgency_level": {{"en": "", "hi": ""}},
+  "duration_of_problem": {{"en": "", "hi": ""}},
+  "severity_score": null,
+  "severity_reason": {{"en": "", "hi": ""}},
+  "population_affected": null,
+  "vulnerable_group": {{"en": "", "hi": ""}},
+  "vulnerability_flag": {{"en": "", "hi": ""}},
+  "expected_resolution_timeline": [{{"en": "", "hi": ""}}],
+  "detailed_resolution_steps": [{{"en": "", "hi": ""}}],
+  "govt_scheme_applicable": {{"en": "", "hi": ""}},
+  "ai_recommended_actions": {{"en": "", "hi": ""}},
+  "key_complaints": [{{"en": "", "hi": ""}}],
+  "sentiment": {{"en": "", "hi": ""}},
+  "description": {{"en": "", "hi": ""}},
+  "auto_category": {{"en": "", "hi": ""}}
 }}
 """
-    file_part = {
-        "mime_type": "image/jpeg",
-        "data": base64.b64encode(photo_bytes).decode("utf-8")
-    }
+    file_part = types.Part.from_bytes(
+        data=photo_bytes,
+        mime_type="image/jpeg"
+    )
 
     try:
         print("\n--- [Gemini Field Report Engine] Synthesizing multimedia report ---")
         print(f"[Gemini Field Report Engine] Transcript Length: {len(audio_transcript)}")
         
-        response = model.generate_content([prompt, file_part])
+        response = retry_with_backoff(None, [prompt, file_part])
         text_content = response.text.strip()
         
         print("\n--- [Gemini Field Report Engine] SUCCESS ---")
@@ -340,64 +543,62 @@ STRICT CONTENT AUDIT RULES (FAILURE TO FOLLOW REDUCES REPORT USEFULNESS):
 4. **INTEGRATE COMMUNITY VOICE**: Read the 'community_voice' analysis. If a female aged 30 expressed concern about water, it MUST be listed as a specific finding.
 5. **BE SPECIFIC**: Use numbers, locations, and direct observations from the evidence analysis.
 
-STRICT JSON OUTPUT FORMAT:
+""" + BILINGUAL_INSTRUCTION + f"""
+
+STRICT JSON OUTPUT FORMAT (ALL TEXT FIELDS MUST BE BILINGUAL OBJECTS):
 {{
   "executive_summary": [
-    "Bullet point 1: Specific high-level summary of the EVENT activity (e.g., 'Completed a health drive in Ward 4')",
-    "Bullet point 2: Key evidence-based observation (e.g., 'Identified acute water shortage affecting 20 households')",
-    "Bullet point 3: Community sentiment and primary request identified",
-    "Bullet point 4: Strategic assessment of the mission's impact"
+    {{"en": "Bullet point 1: ...", "hi": "Bullet point 1 Hindi: ..."}},
+    {{"en": "Bullet point 2: ...", "hi": "Bullet point 2 Hindi: ..."}}
   ],
-  "report_type": "{session_details.get('type')}",
-  "location_summary": "{session_details.get('location')}",
+  "report_type": {{"en": "{session_details.get('type')}", "hi": "Report Type Hindi"}},
+  "location_summary": {{"en": "{session_details.get('location')}", "hi": "Location Hindi"}},
   
   "evidence_breakdown": [
     {{
-      "evidence_type": "Audio / Video / Image / PDF / Note / Community",
-      "evidence_label": "Short label (e.g., 'Primary School Condition')",
+      "evidence_type": {{"en": "Audio / Image / PDF", "hi": "Type Hindi"}},
+      "evidence_label": {{"en": "Short label", "hi": "Label Hindi"}},
       "three_line_extraction": [
-        "Line 1: Specific content found in the evidence (e.g. 'Classrooms show signs of roof leakage')",
-        "Line 2: Data point or detail (e.g. 'Affects approx 30 students during rain')",
-        "Line 3: Recommendation (e.g. 'Urgent roof repairs needed before monsoon')"
+        {{"en": "Line 1", "hi": "Line 1 Hindi"}},
+        {{"en": "Line 2", "hi": "Line 2 Hindi"}},
+        {{"en": "Line 3", "hi": "Line 3 Hindi"}}
       ],
-      "url": "URL if available"
+      "url": "URL stays as string"
     }}
   ],
   
   "key_findings": [
     {{
-      "category": "e.g. Infrastructure / Health",
-      "observation": "detailed observation based on items in feed"
+      "category": {{"en": "Infrastructure", "hi": "Category Hindi"}},
+      "observation": {{"en": "detailed observation", "hi": "Observation Hindi"}}
     }}
   ],
   
   "needs_assessment": [
     {{
-      "need": "The specific requirement identified",
-      "severity": "Low/Moderate/High/Critical",
-      "rationale": "Directly linked to the evidence collected"
+      "need": {{"en": "The specific requirement", "hi": "Need Hindi"}},
+      "severity": "Low/Moderate/High/Critical (stays as English string for backend logic)",
+      "rationale": {{"en": "Directly linked to evidence", "hi": "Rationale Hindi"}}
     }}
   ],
   
   "community_voice": [
     {{
-      "member": "Member 1 (age, gender)",
-      "summary": "What they specifically expressed or requested",
-      "notable_quote": "A powerful quote from their feedback"
+      "member": {{"en": "Member 1 (age, gender)", "hi": "Member 1 Hindi"}},
+      "summary": {{"en": "What they expressed", "hi": "Summary Hindi"}},
+      "notable_quote": {{"en": "A powerful quote", "hi": "Quote Hindi"}}
     }}
   ],
   
   "evidence_conclusion": [
-    "Bullet 1: Direct summary of what the audio evidence (transcripts) specifically revealed about the situation",
-    "Bullet 2: Specific description of what visual evidence showed (not just 'was captured')",
-    "Bullet 3: Synthesis of community requests",
-    "Bullet 4: Overall pattern identified across all media types (e.g. 'Visual and audio evidence both confirm systematic neglect of the public well')",
-    "Bullet 5: Final professional assessment for the NGO headquarters"
+    {{"en": "Bullet 1: ...", "hi": "Bullet 1 Hindi"}},
+    {{"en": "Bullet 2: ...", "hi": "Bullet 2 Hindi"}},
+    {{"en": "Bullet 3: ...", "hi": "Bullet 3 Hindi"}}
   ],
   
   "recommended_follow_up": [
-    "Specific actionable step 1",
-    "Specific actionable step 2"
+    {{"en": "Specific actionable step 1", "hi": "Step 1 Hindi"}},
+    {{"en": "Specific actionable step 2", "hi": "Step 2 Hindi"}}
   ],
   
   "metadata": {{
@@ -420,7 +621,7 @@ Return ONLY valid JSON.
         if media_parts:
             contents.extend(media_parts)
 
-        response = model.generate_content(contents)
+        response = retry_with_backoff(None, contents)
         text_content = response.text.strip()
         
         if text_content.startswith("```json"):
@@ -470,12 +671,12 @@ def verify_task_proof(image_url: str, task_description: str) -> dict:
             return {"error": "Could not download image for verification."}
         
         image_bytes = response.content
-        file_part = {
-            "mime_type": "image/jpeg",
-            "data": base64.b64encode(image_bytes).decode("utf-8")
-        }
+        file_part = types.Part.from_bytes(
+            data=image_bytes,
+            mime_type="image/jpeg"
+        )
 
-        gemini_response = model.generate_content([prompt, file_part])
+        gemini_response = retry_with_backoff(None, [prompt, file_part])
         text_content = gemini_response.text.strip()
         
         if text_content.startswith("```json"):
@@ -494,5 +695,93 @@ def verify_task_proof(image_url: str, task_description: str) -> dict:
             "is_verified": False,
             "confidence_score": 0,
             "summary": "AI verification failed due to a processing error."
+        }
+
+def enrich_bot_report(description: str, category: str, photo_url: Optional[str] = None, location: Optional[str] = None) -> dict:
+    """
+    Uses Gemini to transform a simple bot report (description + category + photo)
+    into a full structured report matching the Scan & Survey schema.
+    """
+    prompt = f"""
+You are an expert civic analyst processed data from a Telegram reporting bot.
+The user reported the following:
+Description: "{description}"
+Category (User Selected): "{category}"
+Location: "{location or 'Unknown'}"
+
+YOUR TASK:
+Use your intelligence to expand this input into a full structured report.
+Even if details like 'vulnerable groups' or 'resolution timeline' aren't explicitly mentioned, 
+use the context of the issue to provide highly probable, professional, and helpful values.
+
+NUMERIC INSTRUCTION:
+- severity_score: Assign a score from 1-10 based on the description (e.g. Health Emergency = 9/10, Garbage = 3/10).
+- population_affected: Estimate a likely number based on the issue type if not specified.
+
+""" + BILINGUAL_INSTRUCTION + f"""
+
+Metadata (plain strings):
+  citizen_name = "Bot User", precise_location = "{location or 'Unknown'}"
+  primary_category = "{category}", auto_category = "{category}"
+
+Return ONLY valid JSON:
+{{
+  "citizen_name": "Bot User",
+  "precise_location": "{location or 'Unknown'}",
+  "executive_summary": {{"en": "", "hi": ""}},
+  "primary_category": {{"en": "{category}", "hi": ""}},
+  "sub_category": {{"en": "", "hi": ""}},
+  "problem_status": {{"en": "Open", "hi": "खुला है"}},
+  "urgency_level": {{"en": "", "hi": ""}},
+  "duration_of_problem": {{"en": "Not specified", "hi": "निर्दिष्ट नहीं है"}},
+  "severity_score": null,
+  "severity_reason": {{"en": "", "hi": ""}},
+  "population_affected": null,
+  "vulnerable_group": {{"en": "General Population", "hi": "सामान्य आबादी"}},
+  "vulnerability_flag": {{"en": "No", "hi": "नहीं"}},
+  "expected_resolution_timeline": [{{"en": "", "hi": ""}}],
+  "detailed_resolution_steps": [{{"en": "", "hi": ""}}],
+  "govt_scheme_applicable": {{"en": "Local Municipal Services", "hi": "स्थानीय नगर सेवाएँ"}},
+  "ai_recommended_actions": {{"en": "", "hi": ""}},
+  "key_complaints": [{{"en": "{description}", "hi": ""}}],
+  "sentiment": {{"en": "Concerned", "hi": "चिंतित"}},
+  "description": {{"en": "{description}", "hi": ""}},
+  "auto_category": {{"en": "{category}", "hi": ""}}
+}}
+"""
+    contents = [prompt]
+    
+    if photo_url:
+        import requests
+        try:
+            resp = requests.get(photo_url, timeout=10)
+            if resp.status_code == 200:
+                contents.append(types.Part.from_bytes(
+                    data=resp.content,
+                    mime_type="image/jpeg"
+                ))
+                print(f"[Gemini Bot Enricher] Photo attached for analysis: {photo_url}")
+        except Exception as e:
+            print(f"[Gemini Bot Enricher] (WARN) Could not download photo for AI analysis: {e}")
+
+    try:
+        print("\n--- [Gemini Bot Enricher] Enriching bot report data ---")
+        response = retry_with_backoff(None, contents)
+        text_content = response.text.strip()
+        
+        if text_content.startswith("```json"):
+            text_content = text_content[7:]
+            text_content = text_content.rsplit("```", 1)[0]
+        elif text_content.startswith("```"):
+            text_content = text_content[3:]
+            text_content = text_content.rsplit("```", 1)[0]
+
+        return json.loads(text_content.strip())
+    except Exception as e:
+        print(f"!!! [Gemini Bot Enricher ERROR] !!!: {e}")
+        return {
+            "description": {"en": description, "hi": ""},
+            "primary_category": {"en": category, "hi": ""},
+            "severity_score": 5
         }
 

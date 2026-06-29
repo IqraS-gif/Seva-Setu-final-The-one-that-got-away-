@@ -1,7 +1,7 @@
 import os
 import json
 import base64
-import google.generativeai as genai # type: ignore
+from google import genai # type: ignore
 from app.config.firebase_config import db # type: ignore
 from firebase_admin import firestore
 from app.services.pdf_processor_service import convert_pdf_to_images # type: ignore
@@ -9,10 +9,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configure Gemini for Vision Analysis
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+from app.services.gemini_service import (
+    retry_with_backoff, 
+    api_keys,
+    current_key_index,
+    model_name
+)
+from google.genai import types # type: ignore
+
+# Configuration is now centralized in gemini_service
+pass
 
 def analyze_attachment_on_upload(file_bytes: bytes, mime_type: str, file_name: str, file_id: str):
     """
@@ -32,16 +38,16 @@ def analyze_attachment_on_upload(file_bytes: bytes, mime_type: str, file_name: s
                 raise ValueError("Could not convert PDF to images.")
             
             for img_bytes in pages_as_images:
-                visual_content.append({
-                    "mime_type": "image/png",
-                    "data": base64.b64encode(img_bytes).decode("utf-8")
-                })
+                visual_content.append(types.Part.from_bytes(
+                    data=img_bytes,
+                    mime_type="image/png"
+                ))
         elif "image" in mime_type.lower():
             # Image: Use directly
-            visual_content.append({
-                "mime_type": mime_type,
-                "data": base64.b64encode(file_bytes).decode("utf-8")
-            })
+            visual_content.append(types.Part.from_bytes(
+                data=file_bytes,
+                mime_type=mime_type
+            ))
         else:
             print(f"[Attachment Processing] Skipping non-visual type: {mime_type}")
             return
@@ -72,7 +78,7 @@ def analyze_attachment_on_upload(file_bytes: bytes, mime_type: str, file_name: s
         # We pass the images + the prompt
         content = visual_content + [prompt]
         
-        response = model.generate_content(content)
+        response = retry_with_backoff(None, content)
         text_content = response.text.strip()
         
         # Helper to clean JSON
