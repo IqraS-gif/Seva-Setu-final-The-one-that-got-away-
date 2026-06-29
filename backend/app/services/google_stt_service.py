@@ -12,14 +12,19 @@ def transcribe_audio_google(audio_bytes: bytes, hint_format: str = "mp3") -> str
     Handles any format: mp3, m4a, amr, webm, aac, wav.
     Falls back to inline base64 if file upload fails.
     """
-    import google.generativeai as genai  # type: ignore
-
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    if not GEMINI_API_KEY:
+    from google import genai # type: ignore
+    from google.genai import types # type: ignore
+    from app.services.gemini_service import (
+        retry_with_backoff, 
+        api_keys,
+        current_key_index
+    )
+    
+    if not api_keys:
         return "Transcription error: GEMINI_API_KEY not set"
     
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    client = genai.Client(api_key=api_keys[current_key_index % len(api_keys)])
+    target_model = 'gemini-2.5-flash'
 
     prompt = """Transcribe the following audio recording accurately.
 Return ONLY the transcribed text, nothing else. No labels, no formatting.
@@ -34,16 +39,16 @@ If no clear speech is detected, return: No speech detected."""
             tmp_path = tmp.name
 
         print(f"[Gemini STT] Uploading audio via Files API ({len(audio_bytes)} bytes)...")
-        audio_file = genai.upload_file(path=tmp_path)
+        audio_file = client.files.upload(path=tmp_path)
         
         import time
         while audio_file.state.name == "PROCESSING":
             time.sleep(1)
-            audio_file = genai.get_file(audio_file.name)
+            audio_file = client.files.get(name=audio_file.name)
 
         if audio_file.state.name == "ACTIVE":
-            response = model.generate_content([prompt, audio_file])
-            genai.delete_file(audio_file.name)
+            response = retry_with_backoff(None, [prompt, audio_file])
+            client.files.delete(name=audio_file.name)
             try: os.unlink(tmp_path)
             except: pass
             transcript = response.text.strip()
@@ -59,11 +64,11 @@ If no clear speech is detected, return: No speech detected."""
     # Fallback: Inline base64
     try:
         print("[Gemini STT Fallback] Trying inline base64...")
-        audio_part = {
-            "mime_type": "audio/mpeg",
-            "data": base64.b64encode(audio_bytes).decode("utf-8")
-        }
-        response = model.generate_content([prompt, audio_part])
+        audio_part = types.Part.from_bytes(
+            data=audio_bytes,
+            mime_type="audio/mpeg"
+        )
+        response = retry_with_backoff(None, [prompt, audio_part])
         transcript = response.text.strip()
         print(f"[Gemini STT Fallback] ✅ Transcribed: {transcript[:100]}")
         return transcript if transcript else "No speech detected."

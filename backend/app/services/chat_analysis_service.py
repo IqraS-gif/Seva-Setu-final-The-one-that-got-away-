@@ -1,4 +1,4 @@
-import google.generativeai as genai
+from google import genai
 import os
 import json
 import numpy as np
@@ -6,24 +6,29 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from app.config.firebase_config import db
 from firebase_admin import firestore
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
-
 import time
 import requests
 import base64
 import cloudinary # type: ignore
 import cloudinary.utils # type: ignore
-from app.services.gemini_service import process_document_and_extract, analyze_ocr_content # type: ignore
+
+# Centralized intelligence from gemini_service
+from app.services.gemini_service import (
+    process_document_and_extract, 
+    analyze_ocr_content, 
+    retry_with_backoff, 
+    api_keys,
+    current_key_index,
+    client as gemini_client,
+    model_name
+)
 from app.services.document_ai_service import process_document # type: ignore
 
 print("\n" + "="*50)
-print("[SYSTEM] MISSION AUDIT ENGINE v2.3 (FIXED ARGUMENTS) ACTIVE")
-print("[SYSTEM] 🔥 FORCING NEW DOCUMENT AI OCR FOR ALL ASSETS")
+print("[SYSTEM] MISSION AUDIT ENGINE v2.3 (CENTRALIZED) ACTIVE")
 print("="*50 + "\n")
 
-# Configure Cloudinary for Signed URL Bypass
+# Configure Cloudinary
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
     api_key=os.getenv("CLOUDINARY_API_KEY"),
@@ -31,34 +36,9 @@ cloudinary.config(
     secure=True
 )
 
-# Using Flash for speed and cost-effectiveness in analysis
-model = genai.GenerativeModel('gemini-2.5-flash') # User specifically wants gemini-2.5-flash
-embedding_model = "models/gemini-embedding-001"
+# Using the centralized model name
+embedding_model = "text-embedding-004" # Recommended new model name for Gen AI SDK
 
-def retry_with_backoff(func, *args, max_retries=5, initial_delay=1, **kwargs):
-    """
-    Executes a function with exponential backoff for rate limiting (429 errors).
-    """
-    retries = 0
-    delay = initial_delay
-    while retries < max_retries:
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            err_str = str(e).lower()
-            if "429" in err_str or "resource exhausted" in err_str:
-                print(f"!!! [Gemini API] Rate limit hit (429). Retrying in {delay}s... (Attempt {retries+1}/{max_retries})")
-                time.sleep(delay)
-                retries += 1
-                delay *= 2 # Exponential backoff
-            elif "503" in err_str or "overloaded" in err_str:
-                print(f"!!! [Gemini API] Service overloaded (503). Retrying in {delay}s...")
-                time.sleep(delay)
-                retries += 1
-                delay *= 2
-            else:
-                raise e
-    return func(*args, **kwargs) # One last try
 
 async def get_document_intelligence(file_url: str, file_name: str, mime_type: str, mission_name: str = "", file_id: str = None) -> str:
     """
@@ -83,7 +63,7 @@ async def get_document_intelligence(file_url: str, file_name: str, mime_type: st
                     analysis = data.get("analysis", {})
                     summary = analysis.get("file_summary", "")
                     doc_type = analysis.get("doc_type", "Document")
-                    print(f"[Intelligence] ✅ PRE-COMPUTED HIT: {file_name} ({doc_type})")
+                    print(f"[Intelligence] (OK) PRE-COMPUTED HIT: {file_name} ({doc_type})")
                     return f"This is a {doc_type}. {summary}"
 
         # 2. Check OLD cache (Legacy)
@@ -94,7 +74,7 @@ async def get_document_intelligence(file_url: str, file_name: str, mime_type: st
         if cached_doc.exists:
             return cached_doc.to_dict().get("intelligence", "")
 
-        print(f"[Intelligence] 🔄 No summary found. Falling back to active OCR for: {file_name}")
+        print(f"[Intelligence] (WAIT) No summary found. Falling back to active OCR for: {file_name}")
         
         # Normalize MIME type for Gemini
         processed_mime = mime_type
@@ -270,6 +250,7 @@ async def analyze_chat(messages: List[Dict[str, Any]], event_name: str = "") -> 
         print(f"[Chat Analysis] Filtered messages: {len(mission_messages)} / {len(messages)}")
         
         # Inject the refined conversation into the prompt
+        from app.services.gemini_service import BILINGUAL_INSTRUCTION  # type: ignore
         prompt = f"""
         You are an expert NGO coordinator for SevaSetu.
         Analyze the following conversation between a Supervisor and a Volunteer regarding the mission '{event_name}'.
@@ -280,22 +261,30 @@ async def analyze_chat(messages: List[Dict[str, Any]], event_name: str = "") -> 
         CONVERSATION:
         {convo_text}
         
-        Return a HIGHLY STRUCTURED JSON object with these fields:
-        - executive_summary (string): 2-3 sentence overview of the MISSION progress and status.
-        - visual_insights (array of objects): For every PDF or Image mentioned, provide:
-            {{"name": "filename", "type": "pdf/image", "summary": "2-sentence intelligence extraction showing its relevance to the mission"}}
-        - issues_discussed (array of strings): Specific mission-related problems or topics raised.
-        - mission_context (string): Strategic alignment with '{event_name}'.
-        - key_insights (array of strings): Critical observations about the work or planning quality.
-        - volunteer_readiness (object): {{"status": "Ready" | "Needs Clarification" | "Not Ready", "reasoning": "Brief explanation why"}}
-        - action_items (array of strings): Concrete mission-related next steps.
-        - sentiment_breakdown (object): {{"supervisor": "...", "volunteer": "...", "overall": "..."}}
+        """ + BILINGUAL_INSTRUCTION + f"""
+        
+        Return a HIGHLY STRUCTURED JSON object where ALL string text fields are bilingual objects
+        {{"en": "English text", "hi": "हिंदी पाठ"}} EXCEPT for: "name", "type", "status" enum values.
+        
+        Fields:
+        - executive_summary (BILINGUAL object)
+        - visual_insights (array): [{{"name": "filename", "type": "pdf/image", "summary": {{"en":"","hi":""}}}}]
+        - issues_discussed (array of BILINGUAL objects)
+        - mission_context (BILINGUAL object)
+        - key_insights (array of BILINGUAL objects)
+        - volunteer_readiness: {{"status": "Ready|Needs Clarification|Not Ready", "reasoning": {{"en":"","hi":""}}}}
+        - action_items (array of BILINGUAL objects)
+        - sentiment_breakdown: {{
+            "supervisor": {{"en": "English", "hi": "Hindi"}},
+            "volunteer": {{"en": "English", "hi": "Hindi"}},
+            "overall": {{"en": "English", "hi": "Hindi"}}
+          }}
         - quality_score (number): 1-10 on mission-focused communication clarity.
         
         Return ONLY raw JSON. No markdown formatting.
         """
 
-        response = retry_with_backoff(model.generate_content, prompt)
+        response = retry_with_backoff(None, prompt)
         text = response.text.strip()
         
         # Clean markdown if present
@@ -385,11 +374,12 @@ def embed_and_store_chunks(room_id: str, chunks: List[str]):
         for i, text in enumerate(chunks):
             try:
                 # Embed singular chunk with retry logic
-                res = retry_with_backoff(
-                    genai.embed_content,
+                # For embedding, we can use the client directly or wrapped
+                client = genai.Client(api_key=api_keys[current_key_index % len(api_keys)])
+                res = client.models.embed_content(
                     model=embedding_model,
-                    content=text,
-                    task_type="retrieval_document"
+                    contents=text,
+                    config={"task_type": "RETRIEVAL_DOCUMENT"}
                 )
                 
                 # Extract values robustly
@@ -451,10 +441,11 @@ def semantic_search(room_id: str, question: str, top_k: int = 5) -> str:
     """
     try:
         # 1. Embed the question
-        res = genai.embed_content(
+        client = genai.Client(api_key=api_keys[current_key_index % len(api_keys)])
+        res = client.models.embed_content(
             model=embedding_model,
-            content=question,
-            task_type="retrieval_query"
+            contents=question,
+            config={"task_type": "RETRIEVAL_QUERY"}
         )
         
         # Extract values robustly
