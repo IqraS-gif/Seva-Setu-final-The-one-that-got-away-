@@ -3,7 +3,7 @@ import { View, Text, Image, StyleSheet, ViewStyle } from 'react-native';
 import { colors, typography } from '../../theme';
 
 interface UserAvatarProps {
-  name: string;
+  name?: string | null;
   imageUrl?: string;
   size?: number;
   style?: ViewStyle;
@@ -15,13 +15,15 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
   size = 48,
   style,
 }) => {
-  const getInitials = (nameStr: string) => {
-    if (!nameStr) return '??';
-    const parts = nameStr.trim().split(/\s+/);
+  const getInitials = (nameStr: string | null | undefined): string => {
+    if (!nameStr || typeof nameStr !== 'string') return '??';
+    const trimmed = nameStr.trim();
+    if (!trimmed) return '??';
+    const parts = trimmed.split(/\s+/);
     if (parts.length >= 2 && parts[0] && parts[1]) {
       return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     }
-    return nameStr.substring(0, 2).toUpperCase();
+    return trimmed.substring(0, 2).toUpperCase();
   };
 
   const containerStyle = {

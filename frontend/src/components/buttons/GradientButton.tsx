@@ -6,6 +6,7 @@ import {
   ViewStyle,
   TextStyle,
   View,
+  StyleProp,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -21,8 +22,8 @@ interface GradientButtonProps {
   title: string;
   onPress: () => void;
   icon?: keyof typeof Feather.glyphMap;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
   colors?: string[];
   disabled?: boolean;
   badge?: string;
