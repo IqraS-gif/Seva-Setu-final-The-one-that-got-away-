@@ -4,11 +4,16 @@ import { CitizenNavigator } from './CitizenNavigator';
 import { VolunteerNavigator } from './VolunteerNavigator';
 import { SupervisorNavigator } from './SupervisorNavigator';
 import { AuthNavigator } from './AuthNavigator';
+import SplashScreen from '../screens/auth/SplashScreen';
 import { useAuthStore } from '../services/store/useAuthStore';
 import { colors, spacing, typography } from '../theme';
 
 export const RootNavigator = () => {
-  const { role, setRole, hasOnboarded } = useAuthStore();
+  const { role, setRole, hasOnboarded, isLoading } = useAuthStore();
+
+  if (isLoading) {
+    return <SplashScreen />;
+  }
 
   if (!role) {
     // Show the Authentication/Landing flow

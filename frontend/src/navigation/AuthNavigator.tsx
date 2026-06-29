@@ -7,6 +7,7 @@ import { RoleSelectionScreen } from '../screens/auth/RoleSelectionScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
 import { OtpLoginScreen } from '../screens/auth/OtpLoginScreen';
+import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 
 export interface AuthNavProps {
   onSelectRole: (role: 'CITIZEN' | 'VOLUNTEER' | 'SUPERVISOR') => void;
@@ -26,15 +27,10 @@ export const AuthNavigator: React.FC<AuthNavProps> = ({ onSelectRole, hasOnboard
       <Stack.Screen name="Landing" component={LandingScreen} />
       {/* We uniquely pass onSelectRole via children since screen props are easier handled this way directly */}
       <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
-      <Stack.Screen name="Login">
-        {() => <LoginScreen onSelectRole={onSelectRole} />}
-      </Stack.Screen>
-      <Stack.Screen name="OtpLogin">
-        {() => <OtpLoginScreen onSelectRole={onSelectRole} />}
-      </Stack.Screen>
-      <Stack.Screen name="Register">
-        {() => <RegisterScreen onSelectRole={onSelectRole} />}
-      </Stack.Screen>
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="OtpLogin" component={OtpLoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </Stack.Navigator>
   );
 };

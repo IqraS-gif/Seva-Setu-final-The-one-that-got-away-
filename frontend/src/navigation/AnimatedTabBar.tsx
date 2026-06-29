@@ -1,3 +1,4 @@
+import { useLanguage } from '../context/LanguageContext';
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet, Dimensions, Text } from 'react-native';
 import Animated, {
@@ -120,6 +121,7 @@ export const AnimatedTabBar: React.FC<BottomTabBarProps> = ({
   navigation,
 }) => {
   const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
 
   return (
     <View style={[
@@ -132,7 +134,9 @@ export const AnimatedTabBar: React.FC<BottomTabBarProps> = ({
     ]}>
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
-        const label = (options.tabBarLabel as string) ?? route.name;
+        const rawLabel = (options.tabBarLabel as string) ?? route.name;
+        const translatedLabel = t(`nav.${route.name}`);
+        const label = translatedLabel !== `nav.${route.name}` ? translatedLabel : rawLabel;
         const isFocused = state.index === index;
         const iconName: FeatherIconName = ICON_MAP[route.name] ?? 'circle';
 
@@ -193,7 +197,7 @@ const styles = StyleSheet.create({
   iconBubble: {
     width: 44, // Slightly smaller to give text more room
     height: 44,
-    borderRadius: 22,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -201,6 +205,7 @@ const styles = StyleSheet.create({
   },
   iconBubbleFocused: {
     backgroundColor: colors.primarySaffron,
+    borderRadius: 12,
     shadowColor: colors.primarySaffron,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,

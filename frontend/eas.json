@@ -1,20 +1,46 @@
 {
   "cli": {
-    "version": ">= 3.0.0"
+    "version": ">= 12.0.0"
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
     },
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "image": "latest"
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_USE_PRODUCTION": "true",
+        "EXPO_PUBLIC_PRODUCTION_API_URL": "https://sevasetu-v2-backend-304628788825.asia-south1.run.app",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "bank-a1d2a.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "bank-a1d2a",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "bank-a1d2a.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "72481582913",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:72481582913:web:91bd44e5a451d0a546bbc0",
+        "EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID": "G-4BL7TM737Q"
       }
     },
-    "production": {}
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_USE_PRODUCTION": "true",
+        "EXPO_PUBLIC_PRODUCTION_API_URL": "https://sevasetu-v2-backend-304628788825.asia-south1.run.app",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "bank-a1d2a.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "bank-a1d2a",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "bank-a1d2a.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "72481582913",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:72481582913:web:91bd44e5a451d0a546bbc0",
+        "EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID": "G-4BL7TM737Q"
+      }
+    }
   },
   "submit": {
     "production": {}
