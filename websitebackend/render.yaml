@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: sevasetu-website-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free          # Change to "starter" ($7/mo) for always-on
+    region: oregon      # us-west-2; change to "singapore" if your users are in Asia
+    healthCheckPath: /
+
+    envVars:
+      # ── AI Keys ──────────────────────────────────────────────
+      - key: GEMINI_API_KEY
+        sync: false     # You will enter this in the Render dashboard
+
+      - key: GROQ_API_KEYS
+        sync: false
+
+      # ── Firebase ─────────────────────────────────────────────
+      - key: PROJECT_ID
+        sync: false
+
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+
+      # Paste the FULL JSON content of firebase-credentials.json here
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false
+
+      # ── Google Cloud / Doc AI ─────────────────────────────────
+      - key: GCP_REGION
+        value: us-central1
+
+      # Paste the FULL JSON content of sevasetudocai.json here
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+
+      # ── Cloudinary ────────────────────────────────────────────
+      - key: CLOUDINARY_URL
+        sync: false
+
+      # ── CORS ─────────────────────────────────────────────────
+      # Set this AFTER your Vercel app is deployed, e.g. https://sevasetu.vercel.app
+      - key: FRONTEND_URL
+        sync: false
